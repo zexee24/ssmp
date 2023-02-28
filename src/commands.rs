@@ -2,7 +2,7 @@ pub(crate) enum PlayerMessage {
     Stop,
     Play,
     Pause,
-    Skip(u64),
+    Skip(usize),
     Volume(f32),
     Add(String),
     Clear,
