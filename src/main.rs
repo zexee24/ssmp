@@ -3,14 +3,12 @@ pub mod commands;
 use std::collections::VecDeque;
 use std::fs::File;
 use std::io::{BufReader, stdin, BufRead};
-use std::sync::Arc;
 use std::sync::mpsc::Sender;
-use std::{sync::mpsc};
+use std::sync::mpsc;
 use std::process::exit;
 use std::*;
 use commands::PlayerMessage;
-use rodio::Source;
-use rodio::{OutputStream, Sink, Decoder, queue::queue};
+use rodio::{OutputStream, Sink, Decoder};
 
 fn main() {
     println!("Starting player");
@@ -19,7 +17,7 @@ fn main() {
     std::thread::spawn(move || {
         let mut queue = VecDeque::new();
         let (_stream, stream_handle) = OutputStream::try_default().unwrap();
-        let mut sink = Sink::try_new(&stream_handle).unwrap();
+        let sink = Sink::try_new(&stream_handle).unwrap();
 
         loop {
             if sink.empty() && queue.len() > 0 {
@@ -37,6 +35,9 @@ fn main() {
                         PlayerMessage::Volume(v) => sink.set_volume(v),
                         PlayerMessage::Skip(n) => {
                             sink.stop();
+                            for _ in 1..n-1 {
+                                queue.pop_front();
+                            }
                         },
                         PlayerMessage::Add(s) => {
                             let file_to_open = File::open(s);
