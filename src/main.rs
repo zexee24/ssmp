@@ -9,6 +9,8 @@ use std::process::exit;
 use std::*;
 use commands::PlayerMessage;
 use rodio::{OutputStream, Sink, Decoder};
+use std::net::TcpStream;
+use std::io::prelude::*;
 
 fn main() {
     println!("Starting player");
@@ -87,8 +89,39 @@ fn handle_command(command : & str, ps : Sender<PlayerMessage>){
             "pause" => ps.send(PlayerMessage::Pause).unwrap(),
             "exit" => exit_program(),
             "speed" => ps.send(PlayerMessage::Speed((value.parse::<f32>()).unwrap_or(1.0))).unwrap(),
+            "remote" => {
+                match value {
+                    "start" => start_remote(ps.clone()),
+                    "stop" => (), /* Work in progress*/
+                    _ => println!("Unknown subcommand of'remote'")
+                }
+            }
             _ => println!("Unknown command"),
         }
+}
+
+fn start_remote(ps : Sender<PlayerMessage>){
+    let _ = thread::spawn(move||{
+        let addr = "127.0.0.1:8008";
+        let listener = std::net::TcpListener::bind(addr).unwrap();
+        println!("Remote started on: {}", addr);
+
+        for stream in listener.incoming(){
+            println!("Connection established");
+            handle_stream(stream.unwrap(), ps.clone());
+        }
+    });
+}
+
+fn handle_stream(mut stream : TcpStream ,ps : Sender<PlayerMessage>){
+    let reader = BufReader::new(&mut stream);
+    let request : Vec<String> = reader.lines().map(|result| result.unwrap()).take_while(|line| !line.is_empty()).collect();
+
+    println!("Request recieved: {:#?}", request);
+
+    let response = "HTTP/1.1 200 OK\r\n\r\n";
+
+    stream.write_all(response.as_bytes()).unwrap();
 }
 
 fn exit_program(){
