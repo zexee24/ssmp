@@ -11,6 +11,9 @@ use commands::PlayerMessage;
 use rodio::{OutputStream, Sink, Decoder};
 use std::net::TcpStream;
 use std::io::prelude::*;
+use std::collections::HashMap;
+
+static SUCCESS : &str = "HTTP/1.1 200 OK \r\n";
 
 fn main() {
     println!("Starting player");
@@ -37,9 +40,12 @@ fn main() {
                         PlayerMessage::Volume(v) => sink.set_volume(v),
                         PlayerMessage::Skip(n) => {
                             sink.stop();
-                            for _ in 1..n-1 {
+                            println!("Queue has: {:?} items", queue.len());
+                            for _ in 1..n {
                                 queue.pop_front();
+                                println!("Popped")
                             }
+                            println!("Now queue has: {:?} items", queue.len());
                         },
                         PlayerMessage::Add(s) => {
                             let file_to_open = File::open(s);
@@ -102,7 +108,7 @@ fn handle_command(command : & str, ps : Sender<PlayerMessage>){
 
 fn start_remote(ps : Sender<PlayerMessage>){
     let _ = thread::spawn(move||{
-        let addr = "127.0.0.1:8008";
+        let addr = "192.168.2.116:8008";
         let listener = std::net::TcpListener::bind(addr).unwrap();
         println!("Remote started on: {}", addr);
 
@@ -115,11 +121,39 @@ fn start_remote(ps : Sender<PlayerMessage>){
 
 fn handle_stream(mut stream : TcpStream ,ps : Sender<PlayerMessage>){
     let reader = BufReader::new(&mut stream);
-    let request : Vec<String> = reader.lines().map(|result| result.unwrap()).take_while(|line| !line.is_empty()).collect();
+    let request : String = reader.lines().next().unwrap().unwrap_or("".to_owned());
+    let (request_type, rest) = request.split_once(" ").unwrap_or(("GET", "/ HTTP/1.1"));
+    let (request_action_full, protocol) = rest.split_once(" ").unwrap_or(("/", "HTTP/1.1"));
+    let (request_action, parameters) = request_action_full.split_once("?").unwrap_or((request_action_full,""));
+    let mut para_map: HashMap<&str, &str> = HashMap::new(); 
+    for i in parameters.split("&"){
+        let (p, v) = i.split_once("=").unwrap_or(("",""));
+        para_map.insert(p, v);
+    }
 
     println!("Request recieved: {:#?}", request);
 
-    let response = "HTTP/1.1 200 OK\r\n\r\n";
+    let response = match (request_type, request_action) {
+        ("POST", "/") => SUCCESS,
+        ("POST", "/pause") => {
+            ps.send(PlayerMessage::Pause).unwrap();
+            SUCCESS
+        },
+        ("POST", "/play") =>{
+            ps.send(PlayerMessage::Play).unwrap();
+            SUCCESS
+        }
+        ("POST", "/skip") => {
+            println!("options are:{:?}", para_map.get("skip").unwrap_or(&"1"));
+            ps.send(PlayerMessage::Skip(para_map.get("skip").unwrap_or(&"1").parse::<usize>().unwrap())).unwrap();
+            SUCCESS
+        }
+        ("POST", "/add") => {
+            ps.send(PlayerMessage::Add(para_map.get("name").unwrap_or(&"").to_string().replace("%20", " "))).unwrap();
+            SUCCESS
+        }
+        _ => "HTTP/1.1 404 NOT FOUND\r\n\r\n",
+    };
 
     stream.write_all(response.as_bytes()).unwrap();
 }
