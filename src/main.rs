@@ -3,6 +3,7 @@ pub mod commands;
 use std::collections::VecDeque;
 use std::fs::File;
 use std::io::{BufReader, stdin, BufRead};
+use std::str::from_utf8;
 use std::sync::mpsc::Sender;
 use std::sync::mpsc;
 use std::process::exit;
@@ -121,11 +122,16 @@ fn start_remote(ps : Sender<PlayerMessage>){
 
 fn handle_stream(mut stream : TcpStream ,ps : Sender<PlayerMessage>){
     let reader = BufReader::new(&mut stream);
-    let request : String = reader.lines().next().unwrap().unwrap_or("".to_owned());
+    let lines = reader.lines();
+    let whole_request : Vec<String> = lines.map(|l| l.unwrap()).take_while(|s| !s.is_empty()).collect();
+    let binding = "".to_string();
+    let request = whole_request.first().unwrap_or(&binding);
     let (request_type, rest) = request.split_once(" ").unwrap_or(("GET", "/ HTTP/1.1"));
     let (request_action_full, protocol) = rest.split_once(" ").unwrap_or(("/", "HTTP/1.1"));
     let (request_action, parameters) = request_action_full.split_once("?").unwrap_or((request_action_full,""));
-    let mut para_map: HashMap<&str, &str> = HashMap::new(); 
+
+    let mut para_map: HashMap<&str, &str> = HashMap::new();
+
     for i in parameters.split("&"){
         let (p, v) = i.split_once("=").unwrap_or(("",""));
         para_map.insert(p, v);
@@ -155,7 +161,9 @@ fn handle_stream(mut stream : TcpStream ,ps : Sender<PlayerMessage>){
         _ => "HTTP/1.1 404 NOT FOUND\r\n\r\n",
     };
 
+    println!("Responce is {:?}", whole_request);
     stream.write_all(response.as_bytes()).unwrap();
+
 }
 
 fn exit_program(){
