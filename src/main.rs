@@ -14,7 +14,7 @@ use std::net::TcpStream;
 use std::io::prelude::*;
 use std::collections::HashMap;
 
-static SUCCESS : &str = "HTTP/1.1 200 OK \r\n";
+static SUCCESS : &str = "HTTP/1.1 200 Ok \r\n\r\n";
 
 fn main() {
     println!("Starting player");
@@ -49,9 +49,9 @@ fn main() {
                             println!("Now queue has: {:?} items", queue.len());
                         },
                         PlayerMessage::Add(s) => {
-                            let file_to_open = File::open(s);
+                            let file_to_open = File::open(s.clone());
                             if !file_to_open.is_ok() {
-                                println!("File not found");
+                                println!("File {:?} not found", s);
                             } else {
                                 let file = BufReader::new(file_to_open.unwrap());
                                 let source = Decoder::new(file).unwrap();
@@ -121,47 +121,72 @@ fn start_remote(ps : Sender<PlayerMessage>){
 }
 
 fn handle_stream(mut stream : TcpStream ,ps : Sender<PlayerMessage>){
-    let reader = BufReader::new(&mut stream);
-    let lines = reader.lines();
-    let whole_request : Vec<String> = lines.map(|l| l.unwrap()).take_while(|s| !s.is_empty()).collect();
-    let binding = "".to_string();
-    let request = whole_request.first().unwrap_or(&binding);
-    let (request_type, rest) = request.split_once(" ").unwrap_or(("GET", "/ HTTP/1.1"));
-    let (request_action_full, protocol) = rest.split_once(" ").unwrap_or(("/", "HTTP/1.1"));
-    let (request_action, parameters) = request_action_full.split_once("?").unwrap_or((request_action_full,""));
+    let mut reader = BufReader::new(&mut stream);
+    
+    let mut header_map: HashMap<String, String> = HashMap::new();
+    let mut request = String::new();
+    reader.read_line(&mut request);
+    loop {
+        let mut buffer : String = String::new();
+        let result = reader.read_line(&mut buffer);
+        match result {
+            Ok(0) => break,
+            Ok(n) => {
+                match buffer.split_once(" ").unwrap_or(("","")) {
+                    ("", "") => break,
+                    (k,v) => {
+                        header_map.insert(k.trim().to_owned(), v.trim().to_owned());
+                        ()
+                    },
+                }
 
-    let mut para_map: HashMap<&str, &str> = HashMap::new();
+            },
+            Err(e) => {
+                println!("Error {:?} reached", e);
+                break;
+            }
+        }
+    }
+    let mut body = String::new();
 
-    for i in parameters.split("&"){
-        let (p, v) = i.split_once("=").unwrap_or(("",""));
-        para_map.insert(p, v);
+    match header_map.get("Content-Length:") {
+        Some(v) => {
+            let mut buffer = vec![0u8; v.parse::<usize>().unwrap_or(0)];
+            reader.read_exact(&mut buffer).unwrap();
+            body = String::from_utf8(buffer).unwrap_or("".to_string());
+        },
+        None => (),
     }
 
-    println!("Request recieved: {:#?}", request);
+    //println!("Header map: {:?}", header_map);
+    //println!("Body is: {:?}", body);
+    //println!("Request is : {:?}", request);
 
-    let response = match (request_type, request_action) {
-        ("POST", "/") => SUCCESS,
-        ("POST", "/pause") => {
+    let response = match request.trim(){
+        "GET / HTTP/1.1" => SUCCESS,
+        "POST /pause HTTP/1.1" => {
             ps.send(PlayerMessage::Pause).unwrap();
             SUCCESS
         },
-        ("POST", "/play") =>{
+        "POST /play HTTP/1.1" =>{
             ps.send(PlayerMessage::Play).unwrap();
             SUCCESS
         }
-        ("POST", "/skip") => {
-            println!("options are:{:?}", para_map.get("skip").unwrap_or(&"1"));
-            ps.send(PlayerMessage::Skip(para_map.get("skip").unwrap_or(&"1").parse::<usize>().unwrap())).unwrap();
+        "POST /skip HTTP/1.1" => {
+            ps.send(PlayerMessage::Skip(body.parse::<usize>().unwrap_or(1))).unwrap();
             SUCCESS
         }
-        ("POST", "/add") => {
-            ps.send(PlayerMessage::Add(para_map.get("name").unwrap_or(&"").to_string().replace("%20", " "))).unwrap();
+        "POST /add HTTP/1.1" => {
+            ps.send(PlayerMessage::Add(body)).unwrap();
+            SUCCESS
+        },
+        "GET /list HTTP/1.1" => {
             SUCCESS
         }
         _ => "HTTP/1.1 404 NOT FOUND\r\n\r\n",
     };
 
-    println!("Responce is {:?}", whole_request);
+    println!("Responce is: {:?}", response);
     stream.write_all(response.as_bytes()).unwrap();
 
 }
