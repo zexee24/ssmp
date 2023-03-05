@@ -81,12 +81,7 @@ fn main() {
 fn handle_command(command : & str, ps : Sender<PlayerMessage>){
     let (command, value) = command.split_once(" ").unwrap_or((command, ""));
         match command {
-            "list" => {
-                let dir = fs::read_dir("songs/").unwrap();
-                for file in dir {
-                    println!("{:?}", file.unwrap().file_name())
-                }
-            },
+            "list" => println!("{:?}", list_songs()),
             "volume" => ps.send(PlayerMessage::Volume(value.parse::<f32>().unwrap_or(1.0))).unwrap(),
             "add" => ps.send(PlayerMessage::Add("songs/".to_owned()+&value.to_string())).unwrap(),
             "play" | "continue" => ps.send(PlayerMessage::Play).unwrap(),
@@ -105,6 +100,15 @@ fn handle_command(command : & str, ps : Sender<PlayerMessage>){
             }
             _ => println!("Unknown command"),
         }
+}
+
+fn list_songs() -> Vec<String> {
+    let mut song_list : Vec<String> = Vec::new();
+    let dir = fs::read_dir("songs/").unwrap();
+    for file in dir {
+        song_list.push(file.unwrap().file_name().to_str().unwrap().to_string());
+    }
+    return song_list;
 }
 
 fn start_remote(ps : Sender<PlayerMessage>){
@@ -163,32 +167,39 @@ fn handle_stream(mut stream : TcpStream ,ps : Sender<PlayerMessage>){
     //println!("Request is : {:?}", request);
 
     let response = match request.trim(){
-        "GET / HTTP/1.1" => SUCCESS,
+        "GET / HTTP/1.1" => SUCCESS.to_string(),
         "POST /pause HTTP/1.1" => {
             ps.send(PlayerMessage::Pause).unwrap();
-            SUCCESS
+            SUCCESS.to_string()
         },
         "POST /play HTTP/1.1" =>{
             ps.send(PlayerMessage::Play).unwrap();
-            SUCCESS
+            SUCCESS.to_string()
         }
         "POST /skip HTTP/1.1" => {
             ps.send(PlayerMessage::Skip(body.parse::<usize>().unwrap_or(1))).unwrap();
-            SUCCESS
+            SUCCESS.to_string()
         }
         "POST /add HTTP/1.1" => {
             ps.send(PlayerMessage::Add(body)).unwrap();
-            SUCCESS
+            SUCCESS.to_string()
         },
         "GET /list HTTP/1.1" => {
-            SUCCESS
+            let list = list_songs();
+            let json = serde_json::to_string(&list).unwrap(); 
+            json_https(json)
         }
-        _ => "HTTP/1.1 404 NOT FOUND\r\n\r\n",
+        _ => "HTTP/1.1 404 NOT FOUND\r\n\r\n".to_string(),
     };
 
     println!("Responce is: {:?}", response);
     stream.write_all(response.as_bytes()).unwrap();
 
+}
+
+fn json_https(json : String) -> String{
+    let len = json.as_bytes().len();
+    return format!("HTTP/1.1 200 Ok\r\nContent-Type: application/json\r\nContent-Length: {len}\r\n\r\n{json}");
 }
 
 fn exit_program(){
