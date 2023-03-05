@@ -3,8 +3,7 @@ pub mod commands;
 use std::collections::VecDeque;
 use std::fs::File;
 use std::io::{BufReader, stdin, BufRead};
-use std::str::from_utf8;
-use std::sync::mpsc::Sender;
+use std::sync::mpsc::{Sender};
 use std::sync::mpsc;
 use std::process::exit;
 use std::*;
@@ -129,13 +128,13 @@ fn handle_stream(mut stream : TcpStream ,ps : Sender<PlayerMessage>){
     
     let mut header_map: HashMap<String, String> = HashMap::new();
     let mut request = String::new();
-    reader.read_line(&mut request);
+    reader.read_line(&mut request).unwrap();
     loop {
         let mut buffer : String = String::new();
         let result = reader.read_line(&mut buffer);
         match result {
             Ok(0) => break,
-            Ok(n) => {
+            Ok(_) => {
                 match buffer.split_once(" ").unwrap_or(("","")) {
                     ("", "") => break,
                     (k,v) => {
@@ -184,10 +183,18 @@ fn handle_stream(mut stream : TcpStream ,ps : Sender<PlayerMessage>){
             ps.send(PlayerMessage::Add(body)).unwrap();
             SUCCESS.to_string()
         },
+        "POST /volume HTTP/1.1" =>{
+            ps.send(PlayerMessage::Volume(body.parse::<f32>().unwrap_or(1.0))).unwrap();
+            SUCCESS.to_string()
+        }
+        "POST /speed HTTP/1.1" =>{
+            ps.send(PlayerMessage::Speed(body.parse::<f32>().unwrap_or(1.0))).unwrap();
+            SUCCESS.to_string()
+        } 
         "GET /list HTTP/1.1" => {
             let list = list_songs();
             let json = serde_json::to_string(&list).unwrap(); 
-            json_https(json)
+            json_to_https(json)
         }
         _ => "HTTP/1.1 404 NOT FOUND\r\n\r\n".to_string(),
     };
@@ -197,7 +204,7 @@ fn handle_stream(mut stream : TcpStream ,ps : Sender<PlayerMessage>){
 
 }
 
-fn json_https(json : String) -> String{
+fn json_to_https(json : String) -> String{
     let len = json.as_bytes().len();
     return format!("HTTP/1.1 200 Ok\r\nContent-Type: application/json\r\nContent-Length: {len}\r\n\r\n{json}");
 }
