@@ -1,33 +1,61 @@
 pub mod commands;
+pub mod song;
+pub mod player_state;
 
 use std::collections::VecDeque;
-use std::fs::File;
+use std::ffi::OsString;
 use std::io::{BufReader, stdin, BufRead};
-use std::sync::mpsc::{Sender};
-use std::sync::mpsc;
+use std::sync::atomic::AtomicBool;
+use std::sync::mpsc::{Sender, Receiver};
+use std::sync::{mpsc, Arc};
 use std::process::exit;
 use std::*;
+use std::time::Duration;
 use commands::PlayerMessage;
-use rodio::{OutputStream, Sink, Decoder};
+use rodio::{OutputStream, Sink, Source};
 use std::net::TcpStream;
 use std::io::prelude::*;
 use std::collections::HashMap;
+use sync::atomic::Ordering::*;
+
+use crate::player_state::PlayerState;
+use crate::song::Song;
 
 static SUCCESS : &str = "HTTP/1.1 200 Ok \r\n\r\n";
 
 fn main() {
     println!("Starting player");
     let (ps, pr) = mpsc::channel::<commands::PlayerMessage>();
+    let (state_sender, state_reciever) = mpsc::channel::<PlayerState>();
+    let stop_remote : Arc<AtomicBool> = Arc::new(AtomicBool::new(false));
+
     
     std::thread::spawn(move || {
-        let mut queue = VecDeque::new();
+        let mut queue : VecDeque<Song> = VecDeque::new();
+        let mut now_playing : Option<Song> = None;
+        let mut current_duration: Option<Duration> = None;
         let (_stream, stream_handle) = OutputStream::try_default().unwrap();
         let sink = Sink::try_new(&stream_handle).unwrap();
 
         loop {
+
+            // Add the next song to the queue if the queue is empty
             if sink.empty() && queue.len() > 0 {
-                sink.append(queue.pop_front().unwrap())
+                let song = queue.pop_front();
+                if let Some(song) = song {
+                    let source = song.create_source();
+                    match source {
+                        Ok(source) => {
+                            current_duration = source.total_duration();
+                            now_playing = Some(song);
+                            sink.append(source);
+                        },
+                        Err(e) => println!("Error reached when appending: {:#?}", e)
+                    }
+                }
             }
+
+            // Handle a message if one is recieved
             let message_or_error = pr.try_recv();
             match message_or_error {
                 Ok(message) => {
@@ -48,17 +76,25 @@ fn main() {
                             println!("Now queue has: {:?} items", queue.len());
                         },
                         PlayerMessage::Add(s) => {
-                            let file_to_open = File::open(s.clone());
-                            if !file_to_open.is_ok() {
-                                println!("File {:?} not found", s);
-                            } else {
-                                let file = BufReader::new(file_to_open.unwrap());
-                                let source = Decoder::new(file).unwrap();
-                                queue.push_back(source);
-                            }
+                            let song = Song{
+                                name: s.clone(),
+                                artist: "Artist Unknown".to_string(),
+                                url: "Url Unknown".to_string(),
+                                path: OsString::from(s),
+                            };
+                            queue.push_back(song);
                         }
                         PlayerMessage::Clear => sink.clear(),
                         PlayerMessage::Speed(s) => sink.set_speed(s),
+                        PlayerMessage::Status => state_sender.send(PlayerState{
+                            now_playing : now_playing.clone(),
+                            queue : queue.clone(),
+                            volume: sink.volume(),
+                            speed: sink.speed(),
+                            paused: sink.is_paused(),
+                            source_duration: current_duration,
+                            
+                        }).unwrap(),
                 }
             },
                 Err(_) => (),
@@ -66,18 +102,16 @@ fn main() {
         }
 });
 
-    println!("Enter command:");
     for command in stdin().lock().lines(){
         match command {
-            Ok(command) => handle_command(command.trim(), ps.clone()),
+            Ok(command) => handle_command(command.trim(), ps.clone(), & state_reciever, stop_remote.clone()),
             Err(_) => println!("Error handling input stream")
          }
-    println!("Enter command:");
     }
     exit_program()
 }
 
-fn handle_command(command : & str, ps : Sender<PlayerMessage>){
+fn handle_command(command : & str, ps : Sender<PlayerMessage>,sr : & Receiver<PlayerState>, stop_remote : Arc<AtomicBool>){
     let (command, value) = command.split_once(" ").unwrap_or((command, ""));
         match command {
             "list" => println!("{:?}", list_songs()),
@@ -92,11 +126,22 @@ fn handle_command(command : & str, ps : Sender<PlayerMessage>){
             "speed" => ps.send(PlayerMessage::Speed((value.parse::<f32>()).unwrap_or(1.0))).unwrap(),
             "remote" => {
                 match value {
-                    "start" => start_remote(ps.clone()),
-                    "stop" => (), /* Work in progress*/
+                    "start" => {
+                        start_remote(ps.clone(), stop_remote.clone());
+                        stop_remote.store(false, SeqCst)
+                    },
+                    "stop" => stop_remote.store(true, SeqCst),
                     _ => println!("Unknown subcommand of'remote'")
                 }
             }
+            "now" | "nowplaying" | "current" | "np"=> {
+                ps.send(PlayerMessage::Status).unwrap();
+                let status = sr.recv();
+                match status {
+                    Ok(status) => println!("{:?}", status.now_playing),
+                    Err(e) => println!("Unable to get status for {:#?}", e)
+                }
+            },
             _ => println!("Unknown command"),
         }
 }
@@ -110,16 +155,26 @@ fn list_songs() -> Vec<String> {
     return song_list;
 }
 
-fn start_remote(ps : Sender<PlayerMessage>){
-    let _ = thread::spawn(move||{
+fn start_remote(ps : Sender<PlayerMessage>, stop_remote : Arc<AtomicBool>){
+    let a = thread::spawn(move||{
         let addr = "192.168.2.116:8008";
         let listener = std::net::TcpListener::bind(addr).unwrap();
         println!("Remote started on: {}", addr);
-
-        for stream in listener.incoming(){
-            println!("Connection established");
-            handle_stream(stream.unwrap(), ps.clone());
+        listener.set_nonblocking(true);
+        for stream in listener.incoming() {
+            if stop_remote.load(SeqCst) {
+                break;
+            }
+            match stream {
+                Ok(stream) => {
+                    println!("Connection established");
+                    handle_stream(stream, ps.clone());
+                },
+                Err(e) if e.kind() == io::ErrorKind::WouldBlock => (),
+                Err(e) => panic!("Encountered an error {e}")
+            }
         }
+        println!("Remote ended")
     });
 }
 
