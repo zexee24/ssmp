@@ -1,0 +1,4 @@
+struct song {
+    name : String
+    
+}
