@@ -1,8 +1,9 @@
 use std::{ffi::OsString, io::{BufReader, self}, fs::File};
 
 use rodio::{Decoder, decoder::DecoderError};
+use serde::{Serialize, Deserialize};
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub(crate) struct Song {
     pub name : String,
     pub artist : String,

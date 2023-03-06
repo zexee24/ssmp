@@ -7,5 +7,6 @@ pub(crate) enum PlayerMessage {
     Add(String),
     Clear,
     Speed(f32),
-    Status,
+    SkipList(Box<[usize]>),
+    ReOrder(usize, usize)
 }

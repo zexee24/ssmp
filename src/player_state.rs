@@ -1,8 +1,10 @@
 use std::{collections::VecDeque, time::Duration};
 
+use serde::{Serialize, Deserialize};
+
 use crate::song::Song;
 
-#[derive(Debug)]
+#[derive(Debug, Serialize, Deserialize)]
 pub(crate) struct  PlayerState {
     pub now_playing : Option<Song>,
     pub queue : VecDeque<Song>,
