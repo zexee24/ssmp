@@ -7,4 +7,5 @@ pub(crate) enum PlayerMessage {
     Add(String),
     Clear,
     Speed(f32),
+    Status,
 }
