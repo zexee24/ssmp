@@ -8,5 +8,5 @@ pub(crate) enum PlayerMessage {
     Clear,
     Speed(f32),
     SkipList(Box<[usize]>),
-    ReOrder(usize, usize)
+    ReOrder(usize, usize),
 }

@@ -1,15 +1,15 @@
 use std::{collections::VecDeque, time::Duration};
 
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
 
 use crate::song::Song;
 
 #[derive(Debug, Serialize, Deserialize)]
-pub(crate) struct  PlayerState {
-    pub now_playing : Option<Song>,
-    pub queue : VecDeque<Song>,
-    pub volume : f32,
-    pub speed : f32,
-    pub paused : bool,
-    pub source_duration : Option<Duration>,
+pub(crate) struct PlayerState {
+    pub now_playing: Option<Song>,
+    pub queue: VecDeque<Song>,
+    pub volume: f32,
+    pub speed: f32,
+    pub paused: bool,
+    pub source_duration: Option<Duration>,
 }
