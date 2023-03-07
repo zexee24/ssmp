@@ -1,9 +1,14 @@
 pub mod commands;
+pub mod downloader;
 pub mod player_state;
 pub mod song;
 
 use commands::PlayerMessage;
+use downloader::change_format_and_name_better;
 use rodio::{OutputStream, Sink, Source};
+use rustube::blocking::Video;
+use rustube::Id;
+use rustube::Stream;
 use serde_json::Value;
 use sha256::digest;
 use std::collections::HashMap;
@@ -12,6 +17,7 @@ use std::ffi::OsString;
 use std::io::prelude::*;
 use std::io::{stdin, BufRead, BufReader};
 use std::net::TcpStream;
+use std::path::PathBuf;
 use std::process::exit;
 use std::sync::atomic::AtomicBool;
 use std::sync::mpsc::Sender;
@@ -196,6 +202,13 @@ fn handle_command(
                 }
             }
             ps.send(PlayerMessage::SkipList(list.into())).unwrap();
+        }
+        "download" => {
+            downloader::download(value.to_string());
+            println!("Jobs done")
+        }
+        "convert" => {
+            change_format_and_name_better(value.to_string(), "test".to_string());
         }
         _ => println!("Unknown command"),
     }
