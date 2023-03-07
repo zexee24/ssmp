@@ -6,13 +6,15 @@ use std::collections::VecDeque;
 use std::ffi::OsString;
 use std::io::{BufReader, stdin, BufRead};
 use std::sync::atomic::AtomicBool;
-use std::sync::mpsc::{Sender, Receiver};
+use std::sync::mpsc::{Sender};
 use std::sync::{mpsc, Arc, Mutex};
 use std::process::exit;
 use std::*;
 use std::time::Duration;
 use commands::PlayerMessage;
 use rodio::{OutputStream, Sink, Source};
+use serde_json::Value;
+use sha256::digest;
 use std::net::TcpStream;
 use std::io::prelude::*;
 use std::collections::HashMap;
@@ -22,6 +24,8 @@ use crate::player_state::PlayerState;
 use crate::song::Song;
 
 static SUCCESS : &str = "HTTP/1.1 200 Ok \r\n\r\n";
+static FORBIDDEN : &str = "HTTP/1.1 401 Unauthorized \r\n\r\n";
+static CONF_PATH : &str = "conf.json";
 
 fn main() {
     println!("Starting player");
@@ -86,12 +90,10 @@ fn main() {
                         PlayerMessage::Volume(v) => sink.set_volume(v),
                         PlayerMessage::Skip(n) => {
                             sink.stop();
-                            println!("Queue has: {:?} items", queue.len());
                             for _ in 1..n {
                                 queue.pop_front();
                                 println!("Popped")
                             }
-                            println!("Now queue has: {:?} items", queue.len());
                         },
                         PlayerMessage::Add(s) => {
                             let song = Song{
@@ -195,11 +197,13 @@ fn list_songs() -> Vec<String> {
 }
 
 fn start_remote(ps : Sender<PlayerMessage>, stop_remote : Arc<AtomicBool>, state : Arc<Mutex<PlayerState>>){
-    let a = thread::spawn(move||{
+    
+    thread::spawn(move||{
         let addr = "192.168.2.116:8008";
         let listener = std::net::TcpListener::bind(addr).unwrap();
         println!("Remote started on: {}", addr);
         for stream in listener.incoming() {
+            //Now only ends the remote when someone makes a request
             if stop_remote.load(SeqCst) {
                 break;
             }
@@ -239,6 +243,18 @@ fn handle_stream(mut stream : TcpStream ,ps : Sender<PlayerMessage>, state : Arc
             }
         }
     }
+
+    let authorized : bool = match fs::read_to_string(CONF_PATH) {
+        Ok(conf) => {
+            if let Ok(json) = serde_json::from_str::<Value>(conf.as_str()){
+                let stored = json["Access-Key"].as_str().unwrap_or("");
+                let recieved = digest(header_map.get("Access-Key:").unwrap_or(&"".to_string()).as_str());
+                stored == recieved 
+            } else { false }
+        },
+        Err(_) => false,
+    };
+
     let mut body = String::new();
 
     match header_map.get("Content-Length:") {
@@ -250,48 +266,70 @@ fn handle_stream(mut stream : TcpStream ,ps : Sender<PlayerMessage>, state : Arc
         None => (),
     }
 
-    let response = match request.trim(){
-        "GET / HTTP/1.1" => SUCCESS.to_string(),
-        "POST /pause HTTP/1.1" => {
-            ps.send(PlayerMessage::Pause).unwrap();
-            SUCCESS.to_string()
-        },
-        "POST /play HTTP/1.1" =>{
-            ps.send(PlayerMessage::Play).unwrap();
-            SUCCESS.to_string()
-        }
-        "POST /skip HTTP/1.1" => {
-            ps.send(PlayerMessage::Skip(body.parse::<usize>().unwrap_or(1))).unwrap();
-            SUCCESS.to_string()
-        }
-        "POST /add HTTP/1.1" => {
-            for line in body.lines(){
-                ps.send(PlayerMessage::Add(line.to_string())).unwrap();
+    if authorized {
+        let response = match request.trim(){
+            "GET / HTTP/1.1" => SUCCESS.to_string(),
+            "POST /pause HTTP/1.1" => {
+                ps.send(PlayerMessage::Pause).unwrap();
+                SUCCESS.to_string()
+            },
+            "POST /play HTTP/1.1" =>{
+                ps.send(PlayerMessage::Play).unwrap();
+                SUCCESS.to_string()
             }
-            SUCCESS.to_string()
-        },
-        "POST /volume HTTP/1.1" =>{
-            ps.send(PlayerMessage::Volume(body.parse::<f32>().unwrap_or(1.0))).unwrap();
-            SUCCESS.to_string()
-        }
-        "POST /speed HTTP/1.1" =>{
-            ps.send(PlayerMessage::Speed(body.parse::<f32>().unwrap_or(1.0))).unwrap();
-            SUCCESS.to_string()
-        } 
-        "GET /list HTTP/1.1" => {
-            let list = list_songs();
-            let json = serde_json::to_string(&list).unwrap(); 
-            json_to_https(json)
-        }
-        "GET /status HTTP/1.1" => {
-            let json = serde_json::to_string(&state).unwrap();
-            json_to_https(json)
-        }
-        _ => "HTTP/1.1 404 NOT FOUND\r\n\r\n".to_string(),
-    };
+            "POST /skip HTTP/1.1" => {
+                ps.send(PlayerMessage::Skip(body.parse::<usize>().unwrap_or(1))).unwrap();
+                SUCCESS.to_string()
+            }
+            "POST /add HTTP/1.1" => {
+                for line in body.lines(){
+                    ps.send(PlayerMessage::Add(line.to_string())).unwrap();
+                }
+                SUCCESS.to_string()
+            },
+            "POST /volume HTTP/1.1" =>{
+                ps.send(PlayerMessage::Volume(body.parse::<f32>().unwrap_or(1.0))).unwrap();
+                SUCCESS.to_string()
+            }
+            "POST /speed HTTP/1.1" =>{
+                ps.send(PlayerMessage::Speed(body.parse::<f32>().unwrap_or(1.0))).unwrap();
+                SUCCESS.to_string()
+            } 
+            "GET /list HTTP/1.1" => {
+                let list = list_songs();
+                let json = serde_json::to_string(&list).unwrap(); 
+                json_to_https(json)
+            }
+            "GET /status HTTP/1.1" => {
+                let json = serde_json::to_string(&state).unwrap();
+                json_to_https(json)
+            }
+            _ => "HTTP/1.1 404 NOT FOUND\r\n\r\n".to_string(),
+        };
+        stream.write_all(response.as_bytes()).unwrap();
 
-    stream.write_all(response.as_bytes()).unwrap();
-
+    } else {
+        let response = match request.trim(){
+            "GET / HTTP/1.1" => SUCCESS.to_string(),
+            "POST /pause HTTP/1.1" => FORBIDDEN.to_string(),
+            "POST /play HTTP/1.1" =>FORBIDDEN.to_string(),
+            "POST /skip HTTP/1.1" => FORBIDDEN.to_string(),
+            "POST /add HTTP/1.1" => FORBIDDEN.to_string(),
+            "POST /volume HTTP/1.1" => FORBIDDEN.to_string(),
+            "POST /speed HTTP/1.1" => FORBIDDEN.to_string(),
+            "GET /list HTTP/1.1" => {
+                let list = list_songs();
+                let json = serde_json::to_string(&list).unwrap(); 
+                json_to_https(json)
+            }
+            "GET /status HTTP/1.1" => {
+                let json = serde_json::to_string(&state).unwrap();
+                json_to_https(json)
+            }
+            _ => "HTTP/1.1 404 NOT FOUND\r\n\r\n".to_string(),
+        };
+        stream.write_all(response.as_bytes()).unwrap();  
+    }
 }
 
 fn json_to_https(json : String) -> String{
