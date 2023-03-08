@@ -18,10 +18,10 @@ pub struct Song {
 impl Song {
     pub fn create_source(&self) -> Result<Decoder<BufReader<File>>, DecoderError> {
         let buf = self.create_buf();
-        return match buf {
+        match buf {
             Ok(buf) => Decoder::new(buf),
             Err(e) => Err(DecoderError::IoError(e.to_string())),
-        };
+        }
     }
 
     fn create_buf(&self) -> io::Result<BufReader<File>> {
