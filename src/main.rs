@@ -40,7 +40,7 @@ fn main() {
         paused: true,
         source_duration: None,
     }));
-    let status_sender = (&status).clone();
+    let status_sender = status.clone();
     let stop_remote: Arc<AtomicBool> = Arc::new(AtomicBool::new(false));
 
     std::thread::spawn(move || {
@@ -49,6 +49,21 @@ fn main() {
         let mut current_duration: Option<Duration> = None;
         let (_stream, stream_handle) = OutputStream::try_default().unwrap();
         let sink = Sink::try_new(&stream_handle).unwrap();
+        let default_volume = match fs::read_to_string(CONF_PATH) {
+            Ok(file) => {
+                match serde_json::from_str::<Value>(&file)  {
+                    Ok(json) => {
+                        json["Default-Volume"].as_f64().unwrap_or(1.0) as f32
+                    },
+                    Err(e) => {
+                        println!("Failed to get default for {:?}", e);
+                        1.0
+                    },
+                }
+            }
+            Err(_) => 1.0,
+        };
+        sink.set_volume(default_volume);
 
         loop {
             // Add the next song to the queue if the queue is empty
@@ -72,6 +87,7 @@ fn main() {
             editable.now_playing = now_playing.clone();
             editable.queue = queue.clone();
             editable.speed = sink.speed();
+            editable.volume = sink.volume();
             editable.paused = sink.is_paused();
             editable.source_duration = current_duration;
             drop(editable);
