@@ -1,5 +1,4 @@
 use std::{
-    ffi::OsString,
     fs::File,
     io::{self, BufReader},
 };
@@ -7,12 +6,13 @@ use std::{
 use rodio::{decoder::DecoderError, Decoder};
 use serde::{Deserialize, Serialize};
 
+use crate::SONG_PATH;
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub(crate) struct Song {
+pub struct Song {
     pub name: String,
     pub artist: String,
     pub url: String,
-    pub path: OsString,
 }
 
 impl Song {
@@ -25,7 +25,8 @@ impl Song {
     }
 
     fn create_buf(&self) -> io::Result<BufReader<File>> {
-        let file = File::open(&self.path)?;
+        let path = format!("{}{}.mp3", SONG_PATH, &self.name);
+        let file = File::open(path)?;
         Ok(BufReader::new(file))
     }
 }

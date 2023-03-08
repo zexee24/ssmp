@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 use crate::song::Song;
 
 #[derive(Debug, Serialize, Deserialize)]
-pub(crate) struct PlayerState {
+pub struct PlayerState {
     pub now_playing: Option<Song>,
     pub queue: VecDeque<Song>,
     pub volume: f32,

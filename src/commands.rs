@@ -1,4 +1,4 @@
-pub(crate) enum PlayerMessage {
+pub enum PlayerMessage {
     Stop,
     Play,
     Pause,
