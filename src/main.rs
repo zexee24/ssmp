@@ -50,17 +50,13 @@ fn main() {
         let (_stream, stream_handle) = OutputStream::try_default().unwrap();
         let sink = Sink::try_new(&stream_handle).unwrap();
         let default_volume = match fs::read_to_string(CONF_PATH) {
-            Ok(file) => {
-                match serde_json::from_str::<Value>(&file)  {
-                    Ok(json) => {
-                        json["Default-Volume"].as_f64().unwrap_or(1.0) as f32
-                    },
-                    Err(e) => {
-                        println!("Failed to get default for {:?}", e);
-                        1.0
-                    },
+            Ok(file) => match serde_json::from_str::<Value>(&file) {
+                Ok(json) => json["Default-Volume"].as_f64().unwrap_or(1.0) as f32,
+                Err(e) => {
+                    println!("Failed to get default for {:?}", e);
+                    1.0
                 }
-            }
+            },
             Err(_) => 1.0,
         };
         sink.set_volume(default_volume);
@@ -80,6 +76,9 @@ fn main() {
                         Err(e) => println!("Error reached when appending: {:#?}", e),
                     }
                 }
+            } else if sink.empty() && queue.len() == 0 {
+                now_playing = None;
+                current_duration = None;
             }
 
             // Update state
@@ -103,11 +102,16 @@ fn main() {
                     PlayerMessage::Pause => sink.pause(),
                     PlayerMessage::Play => sink.play(),
                     PlayerMessage::Volume(v) => sink.set_volume(v),
-                    PlayerMessage::Skip(n) => {
-                        sink.stop();
-                        for _ in 1..n {
-                            queue.pop_front();
-                            println!("Popped")
+                    PlayerMessage::Skip(list) => {
+                        let mut sorted = list.clone();
+                        sorted.sort_by(|a, b| b.cmp(a));
+                        for index in sorted.as_ref() {
+                            match index {
+                                0 => sink.stop(),
+                                _ => {
+                                    queue.remove(*index - 1);
+                                }
+                            }
                         }
                     }
                     PlayerMessage::Add(s) => {
@@ -121,13 +125,6 @@ fn main() {
                     }
                     PlayerMessage::Clear => queue.clear(),
                     PlayerMessage::Speed(s) => sink.set_speed(s),
-                    PlayerMessage::SkipList(list) => {
-                        let mut sorted = list.clone();
-                        sorted.sort_by(|a, b| b.cmp(a));
-                        for index in sorted.as_ref() {
-                            queue.remove(*index);
-                        }
-                    }
                     PlayerMessage::ReOrder(origin, dest) => {
                         let elem = queue.remove(origin);
                         if let Some(song) = elem {
@@ -171,9 +168,6 @@ fn handle_command(
             .unwrap(),
         "play" | "continue" => ps.send(PlayerMessage::Play).unwrap(),
         "stop" => ps.send(PlayerMessage::Stop).unwrap(),
-        "skip" => ps
-            .send(PlayerMessage::Skip(value.parse::<usize>().unwrap_or(1)))
-            .unwrap(),
         "clear" => ps.send(PlayerMessage::Clear).unwrap(),
         "pause" => ps.send(PlayerMessage::Pause).unwrap(),
         "exit" => exit_program(),
@@ -192,7 +186,10 @@ fn handle_command(
             println!("{:?}", state.lock().unwrap().now_playing)
         }
         "queue" | "que" => {
-            println!("{:#?}", state.lock().unwrap().queue)
+            let queue = &state.lock().unwrap().queue;
+            for song in queue {
+                println!("{:?}", song.name)
+            }
         }
         "status" => {
             println!("{:#?}", state.lock().unwrap())
@@ -205,7 +202,7 @@ fn handle_command(
             );
             ps.send(PlayerMessage::ReOrder(from, to)).unwrap();
         }
-        "skipi" => {
+        "skip" => {
             let mut list: Vec<usize> = Vec::new();
             for arg in value.split(" ") {
                 let num = arg.parse::<usize>();
@@ -213,7 +210,7 @@ fn handle_command(
                     list.push(num)
                 }
             }
-            ps.send(PlayerMessage::SkipList(list.into())).unwrap();
+            ps.send(PlayerMessage::Skip(list.into())).unwrap();
         }
         "downloadb" | "db" => {
             let result = downloader::download(value.to_string());
@@ -230,7 +227,7 @@ fn handle_command(
                 }
             });
         }
-        "downloadadd" | "da" => {
+        "download-add" | "da" => {
             let pst = ps.clone();
             let val = value.clone().to_string();
             thread::spawn(move || {
@@ -346,13 +343,44 @@ fn handle_stream(mut stream: TcpStream, ps: Sender<PlayerMessage>, state: Arc<Mu
                 SUCCESS.to_string()
             }
             "POST /skip HTTP/1.1" => {
-                ps.send(PlayerMessage::Skip(body.parse::<usize>().unwrap_or(1)))
-                    .unwrap();
+                let mut list = Vec::new();
+                for line in body.lines() {
+                    if let Ok(n) = line.parse::<usize>() {
+                        list.push(n)
+                    }
+                }
+                ps.send(PlayerMessage::Skip(list.into())).unwrap();
                 SUCCESS.to_string()
             }
             "POST /add HTTP/1.1" => {
                 for line in body.lines() {
                     ps.send(PlayerMessage::Add(line.to_string())).unwrap();
+                }
+                SUCCESS.to_string()
+            }
+            "POST /download HTTP/1.1" => {
+                for line in body.lines() {
+                    let l = line.clone().to_owned();
+                    thread::spawn(move || {
+                        let result = downloader::download(l);
+                        if let Err(e) = result {
+                            println!("{e}");
+                        }
+                    });
+                }
+                SUCCESS.to_string()
+            }
+            "POST /download/add HTTP/1.1" => {
+                for line in body.lines() {
+                    let l = line.clone().to_owned();
+                    let pst = ps.clone();
+                    thread::spawn(move || {
+                        let result = downloader::download(l);
+                        match result {
+                            Err(e) => println!("{e}"),
+                            Ok(file_name) => pst.send(PlayerMessage::Add(file_name)).unwrap(),
+                        }
+                    });
                 }
                 SUCCESS.to_string()
             }
@@ -396,6 +424,8 @@ fn handle_stream(mut stream: TcpStream, ps: Sender<PlayerMessage>, state: Arc<Mu
                 let json = serde_json::to_string(&state).unwrap();
                 json_to_https(json)
             }
+            "POST /download/add HTTP/1.1" => FORBIDDEN.to_string(),
+            "POST /download HTTP/1.1" => FORBIDDEN.to_string(),
             _ => "HTTP/1.1 404 NOT FOUND\r\n\r\n".to_string(),
         };
         stream.write_all(response.as_bytes()).unwrap();
