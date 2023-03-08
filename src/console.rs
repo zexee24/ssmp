@@ -12,7 +12,7 @@ pub(crate) fn handle_command(
     stop_remote: Arc<AtomicBool>,
     state: Arc<Mutex<PlayerState>>,
 ) {
-    let (command, value) = command.split_once(" ").unwrap_or((command, ""));
+    let (command, value) = command.split_once(' ').unwrap_or((command, ""));
     match command {
         "list" => {
             for song in list_songs() {
@@ -33,7 +33,7 @@ pub(crate) fn handle_command(
             .unwrap(),
         "remote" => match value {
             "start" => {
-                start_remote(ps.clone(), stop_remote.clone(), state.clone());
+                start_remote(ps, stop_remote.clone(), state);
                 stop_remote.store(false, SeqCst)
             }
             "stop" => stop_remote.store(true, SeqCst),
@@ -52,7 +52,7 @@ pub(crate) fn handle_command(
             println!("{:#?}", state.lock().unwrap())
         }
         "move" | "reorder" => {
-            let t = value.split_once(" ").unwrap_or(("0", "0"));
+            let t = value.split_once(' ').unwrap_or(("0", "0"));
             let (from, to) = (
                 t.0.parse::<usize>().unwrap_or(0),
                 t.1.parse::<usize>().unwrap_or(0),
@@ -61,7 +61,7 @@ pub(crate) fn handle_command(
         }
         "skip" => {
             let mut list: Vec<usize> = Vec::new();
-            for arg in value.split(" ") {
+            for arg in value.split(' ') {
                 let num = arg.parse::<usize>();
                 if let Ok(num) = num {
                     list.push(num)
@@ -76,7 +76,7 @@ pub(crate) fn handle_command(
             }
         }
         "download" | "d" => {
-            let val = value.clone().to_string();
+            let val = (*value).to_string();
             thread::spawn(|| {
                 let result = downloader::download(val);
                 if let Err(e) = result {
@@ -85,13 +85,12 @@ pub(crate) fn handle_command(
             });
         }
         "download-add" | "da" => {
-            let pst = ps.clone();
-            let val = value.clone().to_string();
+            let val = (*value).to_string();
             thread::spawn(move || {
                 let result = downloader::download(val);
                 match result {
                     Err(e) => println!("{e}"),
-                    Ok(file_name) => pst.send(PlayerMessage::Add(file_name)).unwrap(),
+                    Ok(file_name) => ps.send(PlayerMessage::Add(file_name)).unwrap(),
                 }
             });
         }

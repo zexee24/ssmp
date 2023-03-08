@@ -36,7 +36,7 @@ pub fn start_remote(
                 break;
             }
             println!("Connection established");
-            if let Some(stream) = stream.ok() {
+            if let Ok(stream) = stream {
                 handle_stream(stream, ps.clone(), state.clone());
             }
         }
@@ -55,11 +55,10 @@ fn handle_stream(mut stream: TcpStream, ps: Sender<PlayerMessage>, state: Arc<Mu
         let result = reader.read_line(&mut buffer);
         match result {
             Ok(0) => break,
-            Ok(_) => match buffer.split_once(" ").unwrap_or(("", "")) {
+            Ok(_) => match buffer.split_once(' ').unwrap_or(("", "")) {
                 ("", "") => break,
                 (k, v) => {
                     header_map.insert(k.trim().to_owned(), v.trim().to_owned());
-                    ()
                 }
             },
             Err(e) => {
@@ -89,13 +88,10 @@ fn handle_stream(mut stream: TcpStream, ps: Sender<PlayerMessage>, state: Arc<Mu
 
     let mut body = String::new();
 
-    match header_map.get("Content-Length:") {
-        Some(v) => {
-            let mut buffer = vec![0u8; v.parse::<usize>().unwrap_or(0)];
-            reader.read_exact(&mut buffer).unwrap();
-            body = String::from_utf8(buffer).unwrap_or("".to_string());
-        }
-        None => (),
+    if let Some(v) = header_map.get("Content-Length:") {
+        let mut buffer = vec![0u8; v.parse::<usize>().unwrap_or(0)];
+        reader.read_exact(&mut buffer).unwrap();
+        body = String::from_utf8(buffer).unwrap_or("".to_string());
     }
 
     if authorized {
@@ -127,7 +123,7 @@ fn handle_stream(mut stream: TcpStream, ps: Sender<PlayerMessage>, state: Arc<Mu
             }
             "POST /download HTTP/1.1" => {
                 for line in body.lines() {
-                    let l = line.clone().to_owned();
+                    let l = line.to_owned();
                     thread::spawn(move || {
                         let result = downloader::download(l);
                         if let Err(e) = result {
@@ -139,7 +135,7 @@ fn handle_stream(mut stream: TcpStream, ps: Sender<PlayerMessage>, state: Arc<Mu
             }
             "POST /download/add HTTP/1.1" => {
                 for line in body.lines() {
-                    let l = line.clone().to_owned();
+                    let l = line.to_owned();
                     let pst = ps.clone();
                     thread::spawn(move || {
                         let result = downloader::download(l);
@@ -201,7 +197,7 @@ fn handle_stream(mut stream: TcpStream, ps: Sender<PlayerMessage>, state: Arc<Mu
 
 fn json_to_https(json: String) -> String {
     let len = json.as_bytes().len();
-    return format!(
+    format!(
         "HTTP/1.1 200 Ok\r\nContent-Type: application/json\r\nContent-Length: {len}\r\n\r\n{json}"
-    );
+    )
 }

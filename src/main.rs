@@ -64,7 +64,7 @@ fn main() {
 
         loop {
             // Add the next song to the queue if the queue is empty
-            if sink.empty() && queue.len() > 0 {
+            if sink.empty() && !queue.is_empty() {
                 let song = queue.pop_front();
                 if let Some(song) = song {
                     let source = song.create_source();
@@ -77,7 +77,7 @@ fn main() {
                         Err(e) => println!("Error reached when appending: {:#?}", e),
                     }
                 }
-            } else if sink.empty() && queue.len() == 0 {
+            } else if sink.empty() && queue.is_empty() {
                 now_playing = None;
                 current_duration = None;
             }
@@ -94,8 +94,8 @@ fn main() {
 
             // Handle a message if one is recieved
             let message_or_error = pr.try_recv();
-            match message_or_error {
-                Ok(message) => match message {
+            if let Ok(message) = message_or_error {
+                match message {
                     PlayerMessage::Stop => {
                         queue.clear();
                         sink.stop();
@@ -131,8 +131,7 @@ fn main() {
                             queue.insert(dest, song)
                         }
                     }
-                },
-                Err(_) => (),
+                }
             }
         }
     });
@@ -157,12 +156,12 @@ fn list_songs() -> Vec<String> {
     for file in dir {
         let file = file.unwrap().file_name();
         if let Ok(s) = file.into_string() {
-            if let Some((name, _)) = s.split_once(".") {
+            if let Some((name, _)) = s.split_once('.') {
                 song_list.push(name.to_string());
             }
         }
     }
-    return song_list;
+    song_list
 }
 
 fn exit_program() {
