@@ -11,13 +11,15 @@ use serde_json::Value;
 use sha256::digest;
 
 use crate::{
-    commands::PlayerMessage, downloader, list_songs, player_state::PlayerState, CONF_PATH,
+    commands::PlayerMessage, downloader, list_songs, player_state::PlayerState, 
 };
 use std::io::prelude::*;
 use std::io::BufRead;
 use std::io::Read;
 use std::sync::atomic::Ordering::SeqCst;
 use std::*;
+
+use crate::conf::*;
 
 static SUCCESS: &str = "HTTP/1.1 200 Ok \r\n\r\n";
 static FORBIDDEN: &str = "HTTP/1.1 401 Unauthorized \r\n\r\n";
@@ -68,23 +70,7 @@ fn handle_stream(mut stream: TcpStream, ps: Sender<PlayerMessage>, state: Arc<Mu
         }
     }
 
-    let authorized: bool = match fs::read_to_string(CONF_PATH) {
-        Ok(conf) => {
-            if let Ok(json) = serde_json::from_str::<Value>(conf.as_str()) {
-                let stored = json["Access-Key"].as_str().unwrap_or("");
-                let recieved = digest(
-                    header_map
-                        .get("Access-Key:")
-                        .unwrap_or(&"".to_string())
-                        .as_str(),
-                );
-                stored == recieved
-            } else {
-                false
-            }
-        }
-        Err(_) => false,
-    };
+    let authorized: bool = Configuration::get_conf().access_key == header_map["Access_Key"];
 
     let mut body = String::new();
 

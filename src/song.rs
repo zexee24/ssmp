@@ -6,7 +6,7 @@ use std::{
 use rodio::{decoder::DecoderError, Decoder};
 use serde::{Deserialize, Serialize};
 
-use crate::SONG_PATH;
+use crate::Configuration;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Song {
@@ -25,7 +25,7 @@ impl Song {
     }
 
     fn create_buf(&self) -> io::Result<BufReader<File>> {
-        let path = format!("{}{}.mp3", SONG_PATH, &self.name);
+        let path = format!("{}{}.mp3", Configuration::get_conf().owned_path, &self.name);
         let file = File::open(path)?;
         Ok(BufReader::new(file))
     }

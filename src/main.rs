@@ -4,11 +4,11 @@ pub mod downloader;
 pub mod player_state;
 pub mod remote;
 pub mod song;
+pub mod conf;
 
 use commands::PlayerMessage;
 
 use rodio::{OutputStream, Sink, Source};
-use serde_json::Value;
 
 use std::collections::VecDeque;
 
@@ -24,11 +24,7 @@ use std::*;
 use crate::console::handle_command;
 use crate::player_state::PlayerState;
 use crate::song::Song;
-
-static CONF_PATH: &str = "conf.json";
-
-// Path (relative or absolute) to the folder
-static SONG_PATH: &str = "songs/";
+use crate::conf::Configuration;
 
 fn main() {
     println!("Starting player");
@@ -43,6 +39,7 @@ fn main() {
     }));
     let status_sender = status.clone();
     let stop_remote: Arc<AtomicBool> = Arc::new(AtomicBool::new(false));
+    let conf = Configuration::get_conf();
 
     std::thread::spawn(move || {
         let mut queue: VecDeque<Song> = VecDeque::new();
@@ -50,17 +47,7 @@ fn main() {
         let mut current_duration: Option<Duration> = None;
         let (_stream, stream_handle) = OutputStream::try_default().unwrap();
         let sink = Sink::try_new(&stream_handle).unwrap();
-        let default_volume = match fs::read_to_string(CONF_PATH) {
-            Ok(file) => match serde_json::from_str::<Value>(&file) {
-                Ok(json) => json["Default-Volume"].as_f64().unwrap_or(1.0) as f32,
-                Err(e) => {
-                    println!("Failed to get default for {:?}", e);
-                    1.0
-                }
-            },
-            Err(_) => 1.0,
-        };
-        sink.set_volume(default_volume);
+        sink.set_volume(conf.default_volume);
 
         loop {
             // Add the next song to the queue if the queue is empty
@@ -152,12 +139,20 @@ fn main() {
 
 fn list_songs() -> Vec<String> {
     let mut song_list: Vec<String> = Vec::new();
-    let dir = fs::read_dir(SONG_PATH).unwrap();
-    for file in dir {
-        let file = file.unwrap().file_name();
-        if let Ok(s) = file.into_string() {
-            if let Some((name, _)) = s.split_once('.') {
-                song_list.push(name.to_string());
+    let conf = Configuration::get_conf();
+    let owned_path = conf.owned_path;
+    let mut outer_paths = conf.outer_paths;
+    outer_paths.push(owned_path);
+
+    for dir_str in outer_paths{
+        if let Ok(dir) = fs::read_dir(dir_str) {
+            for file in dir {
+                let file = file.unwrap().file_name();
+                if let Ok(s) = file.into_string() {
+                    if let Some((name, _)) = s.split_once('.') {
+                        song_list.push(name.to_string());
+                    }
+                }
             }
         }
     }
