@@ -4,6 +4,7 @@ use std::thread;
 
 use crate::downloader::{self, change_format_and_name_better};
 use crate::remote::start_remote;
+use crate::song::Song;
 use crate::{commands::PlayerMessage, exit_program, list_songs, player_state::PlayerState};
 
 pub(crate) fn handle_command(
@@ -16,13 +17,17 @@ pub(crate) fn handle_command(
     match command {
         "list" => {
             for song in list_songs() {
-                println!("{}", song)
+                println!("{}", song.name)
             }
         }
         "volume" => ps
             .send(PlayerMessage::Volume(value.parse::<f32>().unwrap_or(1.0)))
             .unwrap(),
-        "add" => ps.send(PlayerMessage::Add(value.to_string())).unwrap(),
+        "add" => ps
+            .send(PlayerMessage::Add(
+                Song::from_string(value.to_string()).unwrap_or_default(),
+            ))
+            .unwrap(),
         "play" | "continue" => ps.send(PlayerMessage::Play).unwrap(),
         "stop" => ps.send(PlayerMessage::Stop).unwrap(),
         "clear" => ps.send(PlayerMessage::Clear).unwrap(),
@@ -90,7 +95,11 @@ pub(crate) fn handle_command(
                 let result = downloader::download(val);
                 match result {
                     Err(e) => println!("{e}"),
-                    Ok(file_name) => ps.send(PlayerMessage::Add(file_name)).unwrap(),
+                    Ok(file_name) => ps
+                        .send(PlayerMessage::Add(
+                            Song::from_file(file_name.into()).unwrap_or_default(),
+                        ))
+                        .unwrap(),
                 }
             });
         }

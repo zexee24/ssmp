@@ -1,19 +1,23 @@
 pub mod commands;
+pub mod conf;
 pub mod console;
 pub mod downloader;
+pub mod format;
 pub mod player_state;
 pub mod remote;
 pub mod song;
-pub mod conf;
 
 use commands::PlayerMessage;
 
+use format::{Format, Formattable};
 use rodio::{OutputStream, Sink, Source};
 
 use std::collections::VecDeque;
 
+use std::fs::read_dir;
 use std::io::{stdin, BufRead};
 
+use std::path::PathBuf;
 use std::process::exit;
 use std::sync::atomic::AtomicBool;
 
@@ -21,10 +25,10 @@ use std::sync::{mpsc, Arc, Mutex};
 use std::time::Duration;
 use std::*;
 
+use crate::conf::Configuration;
 use crate::console::handle_command;
 use crate::player_state::PlayerState;
 use crate::song::Song;
-use crate::conf::Configuration;
 
 fn main() {
     println!("Starting player");
@@ -103,12 +107,7 @@ fn main() {
                         }
                     }
                     PlayerMessage::Add(s) => {
-                        let song = Song {
-                            name: s,
-                            artist: "Artist unknown".to_string(),
-                            url: "Url unknown".to_string(),
-                        };
-                        queue.push_back(song);
+                        queue.push_back(s);
                     }
                     PlayerMessage::Clear => queue.clear(),
                     PlayerMessage::Speed(s) => sink.set_speed(s),
@@ -137,26 +136,36 @@ fn main() {
     exit_program()
 }
 
-fn list_songs() -> Vec<String> {
-    let mut song_list: Vec<String> = Vec::new();
+pub fn list_songs() -> Vec<Song> {
+    let mut song_list: Vec<Song> = Vec::new();
     let conf = Configuration::get_conf();
     let owned_path = conf.owned_path;
-    let mut outer_paths = conf.outer_paths;
-    outer_paths.push(owned_path);
+    let outer_paths = conf.outer_paths;
+    let mut total_path = outer_paths.to_vec();
+    total_path.push(owned_path);
 
-    for dir_str in outer_paths{
-        if let Ok(dir) = fs::read_dir(dir_str) {
-            for file in dir {
-                let file = file.unwrap().file_name();
-                if let Ok(s) = file.into_string() {
-                    if let Some((name, _)) = s.split_once('.') {
-                        song_list.push(name.to_string());
-                    }
+    for dir_str in total_path {
+        song_list.append(&mut scan_folder(dir_str))
+    }
+    song_list
+}
+
+fn scan_folder(folder: PathBuf) -> Vec<Song> {
+    let mut song_vec = Vec::new();
+    if let Ok(dir) = read_dir(folder) {
+        for entry in dir.flatten() {
+            if entry.get_format() != Format::UNSUPPORTED {
+                if let Some(song) = Song::from_file(entry.path()) {
+                    song_vec.push(song)
+                }
+            } else if let Ok(filetype) = entry.file_type() {
+                if filetype.is_dir() {
+                    song_vec.append(&mut scan_folder(entry.path()))
                 }
             }
         }
     }
-    song_list
+    song_vec
 }
 
 fn exit_program() {

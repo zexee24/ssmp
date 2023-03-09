@@ -1,17 +1,15 @@
 use std::{
     collections::HashMap,
-    fs,
     io::BufReader,
     net::TcpStream,
     sync::{atomic::AtomicBool, mpsc::Sender, Arc, Mutex},
     thread,
 };
 
-use serde_json::Value;
 use sha256::digest;
 
 use crate::{
-    commands::PlayerMessage, downloader, list_songs, player_state::PlayerState, 
+    commands::PlayerMessage, downloader, list_songs, player_state::PlayerState, song::Song,
 };
 use std::io::prelude::*;
 use std::io::BufRead;
@@ -70,7 +68,14 @@ fn handle_stream(mut stream: TcpStream, ps: Sender<PlayerMessage>, state: Arc<Mu
         }
     }
 
-    let authorized: bool = Configuration::get_conf().access_key == header_map["Access_Key"];
+    // This line is dumb
+    let authorized: bool = Configuration::get_conf().access_key
+        == digest(
+            header_map
+                .get("Access-Key:")
+                .unwrap_or(&"".to_string())
+                .as_str(),
+        );
 
     let mut body = String::new();
 
@@ -103,7 +108,10 @@ fn handle_stream(mut stream: TcpStream, ps: Sender<PlayerMessage>, state: Arc<Mu
             }
             "POST /add HTTP/1.1" => {
                 for line in body.lines() {
-                    ps.send(PlayerMessage::Add(line.to_string())).unwrap();
+                    ps.send(PlayerMessage::Add(
+                        Song::from_string(line.to_owned()).unwrap_or_default(),
+                    ))
+                    .unwrap();
                 }
                 SUCCESS.to_string()
             }
@@ -127,7 +135,11 @@ fn handle_stream(mut stream: TcpStream, ps: Sender<PlayerMessage>, state: Arc<Mu
                         let result = downloader::download(l);
                         match result {
                             Err(e) => println!("{e}"),
-                            Ok(file_name) => pst.send(PlayerMessage::Add(file_name)).unwrap(),
+                            Ok(file_name) => pst
+                                .send(PlayerMessage::Add(
+                                    Song::from_string(file_name).unwrap_or_default(),
+                                ))
+                                .unwrap(),
                         }
                     });
                 }
