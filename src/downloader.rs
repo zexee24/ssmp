@@ -17,7 +17,6 @@ pub(crate) fn download(url: String) -> Result<String, String> {
                 .blocking_download_to_dir(env::current_dir().unwrap().join("songs/"))
                 .map_err(|e| format!("Failed the download: {e}"))?;
             let name: String = video.title().to_string();
-            //change_format_and_name(path.clone(), name);
             let file_name = change_format_and_name_better(
                 path.file_name().unwrap().to_str().unwrap().to_string(),
                 name,
@@ -42,4 +41,5 @@ pub(crate) fn change_format_and_name_better(from: String, to: String) -> String 
 fn fix_file_name(name: String) -> String {
     name.replace(['/', '\\'], "-")
         .replace([':', '.', '!', '?'], "")
+        .to_ascii_lowercase()
 }

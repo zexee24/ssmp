@@ -46,7 +46,6 @@ impl Song {
             .unwrap_or_default()
             .to_str()
             .unwrap_or_default();
-
         Some(Song {
             name: tag.title().unwrap_or(filename).to_string(),
             artist: tag.artist().map(|s| s.to_string()),
