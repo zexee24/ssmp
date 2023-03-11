@@ -2,6 +2,7 @@ use std::sync::atomic::Ordering::SeqCst;
 use std::sync::{atomic::AtomicBool, mpsc::Sender, Arc, Mutex};
 use std::thread;
 
+use crate::conf::Configuration;
 use crate::downloader;
 use crate::remote::start_remote;
 use crate::song::Song;
@@ -38,7 +39,8 @@ pub(crate) fn handle_command(
             .unwrap(),
         "remote" => match value {
             "start" => {
-                start_remote(ps, stop_remote.clone(), state);
+                let addrs: Vec<String> = Configuration::get_conf().ip;
+                start_remote(ps, stop_remote.clone(), state, addrs);
                 stop_remote.store(false, SeqCst)
             }
             "stop" => stop_remote.store(true, SeqCst),

@@ -13,6 +13,7 @@ pub struct Configuration {
     pub default_volume: f32,
     pub owned_path: PathBuf,
     pub outer_paths: Vec<PathBuf>,
+    pub ip: Vec<String>,
 }
 
 impl Default for Configuration {
@@ -22,6 +23,7 @@ impl Default for Configuration {
             default_volume: 1.0,
             owned_path: PathBuf::from_str("songs/").unwrap(),
             outer_paths: Vec::new(),
+            ip: vec!["0.0.0.0:8000".to_string(), "127.0.0.1:8000".to_string()],
         }
     }
 }

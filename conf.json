@@ -2,5 +2,10 @@
     "access_key" : "804446439f9affa62a6faa59daa1be35bafa790519891ad18ee2735ec99b7b6c",
     "default_volume" : 0.3,
     "owned_path" : "songs/",
-    "outer_paths" : []
+    "outer_paths" : [],
+    "ip" : [
+        "0.0.0.0:8008",
+        "127.0.0.1:8008",
+        "192.168.2.116:8008"
+    ]
 }

@@ -25,23 +25,34 @@ pub fn start_remote(
     ps: Sender<PlayerMessage>,
     stop_remote: Arc<AtomicBool>,
     state: Arc<Mutex<PlayerState>>,
+    addresses: Vec<String>,
 ) {
-    thread::spawn(move || {
-        let addr = "192.168.2.116:8008";
-        let listener = std::net::TcpListener::bind(addr).unwrap();
-        println!("Remote started on: {}", addr);
-        for stream in listener.incoming() {
-            //Now only ends the remote when someone makes a request
-            if stop_remote.load(SeqCst) {
-                break;
+    for addr in addresses {
+        let psx = ps.clone();
+        let statex = state.clone();
+        let srx = stop_remote.clone();
+        thread::spawn(move || {
+            match std::net::TcpListener::bind(addr.clone()) {
+                Ok(listener) => {
+                    println!("Remote started on: {}", addr);
+                    for stream in listener.incoming() {
+                        //Now only ends the remote when someone makes a request
+                        if srx.clone().load(SeqCst) {
+                            break;
+                        }
+                        println!("Connection established");
+                        if let Ok(stream) = stream {
+                            handle_stream(stream, psx.clone(), statex.clone());
+                        }
+                    }
+                    println!("Remote ended")
+                }
+                Err(e) => {
+                    println!("Failed to bind {} cause of {}", addr, e)
+                }
             }
-            println!("Connection established");
-            if let Ok(stream) = stream {
-                handle_stream(stream, ps.clone(), state.clone());
-            }
-        }
-        println!("Remote ended")
-    });
+        });
+    }
 }
 
 fn handle_stream(mut stream: TcpStream, ps: Sender<PlayerMessage>, state: Arc<Mutex<PlayerState>>) {
