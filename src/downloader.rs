@@ -1,6 +1,12 @@
-use std::{fs, path::PathBuf, process::Command};
+use std::{
+    fs,
+    io::{Cursor},
+    path::PathBuf,
+    process::Command,
+};
 
-use id3::{Tag, TagLike};
+use id3::{Tag, TagLike, frame::Picture};
+use image::{DynamicImage, EncodableLayout, ImageOutputFormat};
 use rustube::{blocking::Video, Id};
 
 use crate::{conf::Configuration, format::Format, song::Song};
@@ -16,6 +22,17 @@ pub(crate) fn download(url: String) -> Result<Song, String> {
                 .filter(|stream| stream.includes_audio_track)
                 .min_by_key(|stream| stream.quality_label)
                 .ok_or("Error in getting stream")?;
+            let img = if let Some(thumbnal_max_res) = &video
+                .video_details()
+                .thumbnails
+                .iter()
+                .max_by_key(|t| t.width)
+            {
+                get_image(thumbnal_max_res.url.clone())
+            } else {
+                None
+            };
+
             let owned = Configuration::get_conf().owned_path;
             let path = best_video
                 .blocking_download_to_dir(owned)
@@ -29,7 +46,7 @@ pub(crate) fn download(url: String) -> Result<Song, String> {
                 path: file_path,
                 format: Format::MP3,
             };
-            if let Err(e) = set_metadata(song.clone()) {
+            if let Err(e) = set_metadata(song.clone(), img) {
                 println!("Error when writing metadata: {:?}", e)
             }
             Ok(song)
@@ -59,13 +76,22 @@ fn generate_filename(name: &str, format: Format) -> String {
     n + &Format::filetype_to_extension(format).unwrap_or(".mp3".to_owned())
 }
 
+fn get_image(url: String) -> Option<DynamicImage> {
+    let resp = reqwest::blocking::get(url).ok()?;
+    let bytes = resp.bytes().unwrap();
+    image::io::Reader::new(Cursor::new(bytes.as_bytes()))
+        .with_guessed_format()
+        .ok()?
+        .decode().ok()
+}
+
 #[test]
 fn test_filename() {
     let new_name = generate_filename("Heilutaan / Eurobeat Remix", Format::MP3);
     assert_eq!(new_name, "heilutaan - eurobeat remix.mp3")
 }
 
-fn set_metadata(song: Song) -> Result<(), id3::Error> {
+fn set_metadata(song: Song, img : Option<DynamicImage>) -> Result<(), id3::Error> {
     let mut tag = Tag::read_from_path(song.path.clone()).unwrap_or(Tag::new());
     tag.set_title(song.name);
     if let Some(artist) = song.artist {
@@ -76,6 +102,20 @@ fn set_metadata(song: Song) -> Result<(), id3::Error> {
     tag.set_album("");
     if let Some(url) = song.url {
         tag.set_text("url", url)
+    }
+    let mut picture_data: Vec<u8> = Vec::new();
+    if let Some(img) = img {
+        if let Err(e) = img.write_to(&mut Cursor::new(&mut picture_data), ImageOutputFormat::Jpeg(90)) {
+            println!("Error occured while writing image to buf: {:?}", e)
+        } else {
+            let picture = Picture{ 
+                mime_type: "image/jpeg".to_string(), 
+                picture_type: id3::frame::PictureType::CoverFront, 
+                description: "A picture".to_string(), 
+                data: picture_data
+            };
+            tag.add_frame(picture);
+        }
     }
     tag.write_to_path(song.path, id3::Version::Id3v22)
 }
