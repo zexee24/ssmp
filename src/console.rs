@@ -2,7 +2,7 @@ use std::sync::atomic::Ordering::SeqCst;
 use std::sync::{atomic::AtomicBool, mpsc::Sender, Arc, Mutex};
 use std::thread;
 
-use crate::downloader::{self, change_format_and_name_better};
+use crate::downloader;
 use crate::remote::start_remote;
 use crate::song::Song;
 use crate::{commands::PlayerMessage, exit_program, list_songs, player_state::PlayerState};
@@ -95,16 +95,9 @@ pub(crate) fn handle_command(
                 let result = downloader::download(val);
                 match result {
                     Err(e) => println!("{e}"),
-                    Ok(file_name) => ps
-                        .send(PlayerMessage::Add(
-                            Song::from_file(file_name.into()).unwrap_or_default(),
-                        ))
-                        .unwrap(),
+                    Ok(song) => ps.send(PlayerMessage::Add(song)).unwrap(),
                 }
             });
-        }
-        "convert" => {
-            change_format_and_name_better(value.to_string(), "test".to_string());
         }
         _ => println!("Unknown command"),
     }

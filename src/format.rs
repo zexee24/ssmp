@@ -8,14 +8,24 @@ pub enum Format {
     MP4,
     UNSUPPORTED,
 }
+static FORMAT_MAP: &[(&str, Format)] = &[(".mp3", Format::MP3), (".mp4", Format::MP4)];
 
 impl Format {
-    pub fn match_filetype(extension: &str) -> Format {
-        match extension {
-            "mp3" => Self::MP3,
-            "mp4" => Self::MP4,
-            _ => Self::UNSUPPORTED,
+    pub fn extension_to_filetype(extension: &str) -> Format {
+        for (ex, fr) in FORMAT_MAP.iter() {
+            if ex == &extension {
+                return fr.clone();
+            }
         }
+        Format::UNSUPPORTED
+    }
+    pub fn filetype_to_extension(format: Format) -> Option<String> {
+        for (ex, fr) in FORMAT_MAP.iter() {
+            if &format == fr {
+                return Some(ex.to_string());
+            }
+        }
+        None
     }
 }
 
@@ -27,7 +37,7 @@ impl Formattable for DirEntry {
     fn get_format(&self) -> Format {
         if let Ok(file_name) = self.file_name().into_string() {
             let extension = file_name.split('.').last().unwrap_or("");
-            return Format::match_filetype(extension);
+            return Format::extension_to_filetype(extension);
         }
         Format::UNSUPPORTED
     }
@@ -36,7 +46,7 @@ impl Formattable for DirEntry {
 impl Formattable for PathBuf {
     fn get_format(&self) -> Format {
         if let Some(extension) = &self.extension() {
-            return Format::match_filetype(extension.to_str().unwrap_or_default());
+            return Format::extension_to_filetype(extension.to_str().unwrap_or_default());
         }
         Format::UNSUPPORTED
     }

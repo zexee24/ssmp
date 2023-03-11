@@ -135,11 +135,7 @@ fn handle_stream(mut stream: TcpStream, ps: Sender<PlayerMessage>, state: Arc<Mu
                         let result = downloader::download(l);
                         match result {
                             Err(e) => println!("{e}"),
-                            Ok(file_name) => pst
-                                .send(PlayerMessage::Add(
-                                    Song::from_string(file_name).unwrap_or_default(),
-                                ))
-                                .unwrap(),
+                            Ok(song) => pst.send(PlayerMessage::Add(song)).unwrap(),
                         }
                     });
                 }
