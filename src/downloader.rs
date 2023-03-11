@@ -1,11 +1,6 @@
-use std::{
-    fs,
-    io::{Cursor},
-    path::PathBuf,
-    process::Command,
-};
+use std::{fs, io::Cursor, path::PathBuf, process::Command};
 
-use id3::{Tag, TagLike, frame::Picture};
+use id3::{frame::Picture, Tag, TagLike};
 use image::{DynamicImage, EncodableLayout, ImageOutputFormat};
 use rustube::{blocking::Video, Id};
 
@@ -82,7 +77,8 @@ fn get_image(url: String) -> Option<DynamicImage> {
     image::io::Reader::new(Cursor::new(bytes.as_bytes()))
         .with_guessed_format()
         .ok()?
-        .decode().ok()
+        .decode()
+        .ok()
 }
 
 #[test]
@@ -91,7 +87,7 @@ fn test_filename() {
     assert_eq!(new_name, "heilutaan - eurobeat remix.mp3")
 }
 
-fn set_metadata(song: Song, img : Option<DynamicImage>) -> Result<(), id3::Error> {
+fn set_metadata(song: Song, img: Option<DynamicImage>) -> Result<(), id3::Error> {
     let mut tag = Tag::read_from_path(song.path.clone()).unwrap_or(Tag::new());
     tag.set_title(song.name);
     if let Some(artist) = song.artist {
@@ -105,14 +101,17 @@ fn set_metadata(song: Song, img : Option<DynamicImage>) -> Result<(), id3::Error
     }
     let mut picture_data: Vec<u8> = Vec::new();
     if let Some(img) = img {
-        if let Err(e) = img.write_to(&mut Cursor::new(&mut picture_data), ImageOutputFormat::Jpeg(90)) {
+        if let Err(e) = img.write_to(
+            &mut Cursor::new(&mut picture_data),
+            ImageOutputFormat::Jpeg(90),
+        ) {
             println!("Error occured while writing image to buf: {:?}", e)
         } else {
-            let picture = Picture{ 
-                mime_type: "image/jpeg".to_string(), 
-                picture_type: id3::frame::PictureType::CoverFront, 
-                description: "A picture".to_string(), 
-                data: picture_data
+            let picture = Picture {
+                mime_type: "image/jpeg".to_string(),
+                picture_type: id3::frame::PictureType::CoverFront,
+                description: "A picture".to_string(),
+                data: picture_data,
             };
             tag.add_frame(picture);
         }
