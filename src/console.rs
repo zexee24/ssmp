@@ -15,7 +15,7 @@ pub(crate) fn handle_command(
 ) {
     let (command, value) = command.split_once(' ').unwrap_or((command, ""));
     match command {
-        "list" => {
+        "list" | "ls" => {
             for song in list_songs() {
                 println!("{}", song.name)
             }
@@ -28,7 +28,7 @@ pub(crate) fn handle_command(
                 Song::from_string(value.to_string()).unwrap_or_default(),
             ))
             .unwrap(),
-        "play" | "continue" => ps.send(PlayerMessage::Play).unwrap(),
+        "play" | "continue" | "p" => ps.send(PlayerMessage::Play).unwrap(),
         "stop" => ps.send(PlayerMessage::Stop).unwrap(),
         "clear" => ps.send(PlayerMessage::Clear).unwrap(),
         "pause" => ps.send(PlayerMessage::Pause).unwrap(),
@@ -73,12 +73,6 @@ pub(crate) fn handle_command(
                 }
             }
             ps.send(PlayerMessage::Skip(list.into())).unwrap();
-        }
-        "downloadb" | "db" => {
-            let result = downloader::download(value.to_string());
-            if let Err(e) = result {
-                println!("{e}");
-            }
         }
         "download" | "d" => {
             let val = (*value).to_string();

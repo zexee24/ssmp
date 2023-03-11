@@ -11,12 +11,6 @@ pub(crate) fn download(url: String) -> Result<Song, String> {
     return match id {
         Ok(id) => {
             let video = Video::from_id(id.as_owned()).unwrap();
-            let best_video = video
-                .streams()
-                .iter()
-                .filter(|stream| stream.includes_audio_track)
-                .min_by_key(|stream| stream.quality_label)
-                .ok_or("Error in getting stream")?;
             let img = if let Some(thumbnal_max_res) = &video
                 .video_details()
                 .thumbnails
@@ -28,10 +22,7 @@ pub(crate) fn download(url: String) -> Result<Song, String> {
                 None
             };
 
-            let owned = Configuration::get_conf().owned_path;
-            let path = best_video
-                .blocking_download_to_dir(owned)
-                .map_err(|e| format!("Failed the download: {e}"))?;
+            let path = download_best_stream(&video).ok_or("Error in downloading stream")?;
             let name = video.title();
             let file_path = change_format_and_name_better(name, path).unwrap();
             let song = Song {
@@ -48,6 +39,22 @@ pub(crate) fn download(url: String) -> Result<Song, String> {
         }
         Err(e) => Err(format!("Unable to get video id: {e}")),
     };
+}
+
+fn download_best_stream(video: &Video) -> Option<PathBuf> {
+    let owned = Configuration::get_conf().owned_path;
+    let mut streams = video.streams().clone();
+    streams.sort_by_key(|s| s.audio_sample_rate);
+    for stream in streams {
+        if stream.includes_video_track {
+            continue;
+        }
+        match stream.blocking_download_to_dir(&owned) {
+            Ok(stream) => return Some(stream),
+            Err(e) => println!("Stream {:?} failed, trying next one", e),
+        }
+    }
+    None
 }
 
 pub(crate) fn change_format_and_name_better(name: &str, path: PathBuf) -> Result<PathBuf, String> {
