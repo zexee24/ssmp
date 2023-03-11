@@ -42,7 +42,6 @@ pub(crate) fn change_format_and_name_better(name: &str, path: PathBuf) -> Result
     let new_file_name = generate_filename(name, Format::MP3);
     let mut new_loc = Configuration::get_conf().owned_path;
     new_loc.push(new_file_name);
-    println!("New loc = {:?}", new_loc);
 
     Command::new("ffmpeg")
         .args(["-i", path.to_str().unwrap(), new_loc.to_str().unwrap()])
@@ -53,10 +52,17 @@ pub(crate) fn change_format_and_name_better(name: &str, path: PathBuf) -> Result
 }
 
 fn generate_filename(name: &str, format: Format) -> String {
-    name.replace(['/', '\\'], "-")
+    let n = name
+        .replace(['/', '\\'], "-")
         .replace([':', '.', '!', '?'], "")
-        .make_ascii_lowercase();
-    name.to_owned() + &Format::filetype_to_extension(format).unwrap_or(".mp3".to_owned())
+        .to_ascii_lowercase();
+    n + &Format::filetype_to_extension(format).unwrap_or(".mp3".to_owned())
+}
+
+#[test]
+fn test_filename() {
+    let new_name = generate_filename("Heilutaan / Eurobeat Remix", Format::MP3);
+    assert_eq!(new_name, "heilutaan - eurobeat remix.mp3")
 }
 
 fn set_metadata(song: Song) -> Result<(), id3::Error> {

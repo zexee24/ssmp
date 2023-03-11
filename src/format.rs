@@ -36,8 +36,8 @@ pub(crate) trait Formattable {
 impl Formattable for DirEntry {
     fn get_format(&self) -> Format {
         if let Ok(file_name) = self.file_name().into_string() {
-            let extension = file_name.split('.').last().unwrap_or("");
-            return Format::extension_to_filetype(extension);
+            let extension = ".".to_owned() + file_name.split('.').last().unwrap_or("");
+            return Format::extension_to_filetype(extension.as_str());
         }
         Format::UNSUPPORTED
     }
