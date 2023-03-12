@@ -4,7 +4,7 @@ use std::{
     path::PathBuf,
 };
 
-use id3::{Tag, TagLike};
+use id3::{frame::PictureType, Tag, TagLike};
 use rodio::{decoder::DecoderError, Decoder};
 use serde::{Deserialize, Serialize};
 
@@ -44,10 +44,8 @@ impl Song {
             .to_str()
             .unwrap_or_default();
         let url = match url_frame {
-            Some(frame) => {
-                frame.content().link().map(|s| s.to_string())
-            }
-            None => None
+            Some(frame) => frame.content().link().map(|s| s.to_string()),
+            None => None,
         };
         Some(Song {
             name: tag.title().unwrap_or(filename).to_string(),
@@ -56,13 +54,20 @@ impl Song {
             path: path.clone(),
             format: path.get_format(),
         })
-
     }
 
     pub fn from_string(string: String) -> Option<Song> {
         list_songs()
             .into_iter()
             .find(|song| song.name == string.clone() || song.url == Some(string.clone()))
+    }
+
+    pub fn get_image(&self) -> Option<Vec<u8>> {
+        let tag = Tag::read_from_path(&self.path).ok()?;
+        let image_data = tag
+            .pictures()
+            .find(|p| p.picture_type == PictureType::CoverFront)?;
+        Some(image_data.data.clone())
     }
 }
 

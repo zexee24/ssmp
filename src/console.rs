@@ -27,9 +27,7 @@ pub(crate) fn handle_command(
         "add" => {
             let songopt = Song::from_string(value.to_owned());
             if let Some(song) = songopt {
-                ps.send(PlayerMessage::Add(song),
-            )
-            .unwrap();   
+                ps.send(PlayerMessage::Add(song)).unwrap();
             }
         }
         "play" | "continue" | "p" => ps.send(PlayerMessage::Play).unwrap(),

@@ -1,6 +1,6 @@
 use std::{fs, io::Cursor, path::PathBuf, process::Command};
 
-use id3::{frame::Picture, Tag, TagLike, Frame};
+use id3::{frame::Picture, Frame, Tag, TagLike};
 use image::{DynamicImage, EncodableLayout, ImageOutputFormat};
 use rustube::{blocking::Video, Id};
 

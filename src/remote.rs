@@ -9,7 +9,7 @@ use std::{
 use sha256::digest;
 
 use crate::{
-    commands::PlayerMessage, downloader, list_songs, player_state::PlayerState, song::Song,
+    commands::PlayerMessage, downloader, list_songs, player_state::PlayerState, song::{Song},
 };
 use std::io::prelude::*;
 use std::io::BufRead;
@@ -167,11 +167,24 @@ fn handle_stream(mut stream: TcpStream, ps: Sender<PlayerMessage>, state: Arc<Mu
             "GET /list HTTP/1.1" => {
                 let list = list_songs();
                 let json = serde_json::to_string(&list).unwrap();
-                json_to_https(json)
+                json_to_http(json)
             }
             "GET /status HTTP/1.1" => {
                 let json = serde_json::to_string(&state).unwrap();
-                json_to_https(json)
+                json_to_http(json)
+            }
+            "GET /picture HTTP/1.1" => {
+                let list = list_songs();
+                let mut song_img_list : Vec<(Song ,Vec<u8>)> = Vec::new();
+                for line in body.lines(){
+                    if let Some(song) = list.iter().find(|s| s.name == line || s.url == Some(line.to_owned())){
+                        if let Some(img) = song.get_image(){
+                            song_img_list.push((song.clone(), img));
+                        }
+                    }
+                }
+                stream.write_all(&image_list_to_http(song_img_list)).unwrap();
+                SUCCESS.to_string()
             }
             _ => "HTTP/1.1 404 NOT FOUND\r\n\r\n".to_string(),
         };
@@ -188,11 +201,11 @@ fn handle_stream(mut stream: TcpStream, ps: Sender<PlayerMessage>, state: Arc<Mu
             "GET /list HTTP/1.1" => {
                 let list = list_songs();
                 let json = serde_json::to_string(&list).unwrap();
-                json_to_https(json)
+                json_to_http(json)
             }
             "GET /status HTTP/1.1" => {
                 let json = serde_json::to_string(&state).unwrap();
-                json_to_https(json)
+                json_to_http(json)
             }
             "POST /download/add HTTP/1.1" => FORBIDDEN.to_string(),
             "POST /download HTTP/1.1" => FORBIDDEN.to_string(),
@@ -202,9 +215,23 @@ fn handle_stream(mut stream: TcpStream, ps: Sender<PlayerMessage>, state: Arc<Mu
     }
 }
 
-fn json_to_https(json: String) -> String {
+fn json_to_http(json: String) -> String {
     let len = json.as_bytes().len();
     format!(
         "HTTP/1.1 200 Ok\r\nContent-Type: application/json\r\nContent-Length: {len}\r\n\r\n{json}"
     )
+}
+
+fn image_list_to_http(list: Vec<(Song ,Vec<u8>)>) -> Vec<u8>{
+    let head = "HTTP/1.1 200 Ok\r\nContent-Type: multipart/form-data;boundary=\"b\"";
+    let mut body_raw:Vec<u8> = Vec::new();
+    body_raw.append(&mut head.as_bytes().to_vec());
+    for (song, mut image) in list{
+        body_raw.append(&mut "\r\n\r\n".as_bytes().to_vec());
+        body_raw.append(&mut "--b\r\n".as_bytes().to_vec());
+        body_raw.append(&mut format!("Content-Type: image/jpeg; Content-Disposition: form-data; name=\"{}\"\r\n\r\n", song.name).as_bytes().to_vec());
+        body_raw.append(&mut image);
+    }
+    body_raw.append(&mut "--".as_bytes().to_vec());
+    body_raw
 }
