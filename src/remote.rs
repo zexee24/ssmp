@@ -6,10 +6,13 @@ use std::{
     thread,
 };
 
+#[cfg(test)]
+use http_bytes::http::{header, HeaderValue};
+
 use sha256::digest;
 
 use crate::{
-    commands::PlayerMessage, downloader, list_songs, player_state::PlayerState, song::{Song},
+    commands::PlayerMessage, downloader, list_songs, player_state::PlayerState, song::Song,
 };
 use std::io::prelude::*;
 use std::io::BufRead;
@@ -121,9 +124,7 @@ fn handle_stream(mut stream: TcpStream, ps: Sender<PlayerMessage>, state: Arc<Mu
                 for line in body.lines() {
                     let songopt = Song::from_string(line.to_owned());
                     if let Some(song) = songopt {
-                        ps.send(PlayerMessage::Add(song),
-                    )
-                    .unwrap();   
+                        ps.send(PlayerMessage::Add(song)).unwrap();
                     }
                 }
                 SUCCESS.to_string()
@@ -175,15 +176,20 @@ fn handle_stream(mut stream: TcpStream, ps: Sender<PlayerMessage>, state: Arc<Mu
             }
             "GET /picture HTTP/1.1" => {
                 let list = list_songs();
-                let mut song_img_list : Vec<(Song ,Vec<u8>)> = Vec::new();
-                for line in body.lines(){
-                    if let Some(song) = list.iter().find(|s| s.name == line || s.url == Some(line.to_owned())){
-                        if let Some(img) = song.get_image(){
+                let mut song_img_list: Vec<(Song, Vec<u8>)> = Vec::new();
+                for line in body.lines() {
+                    if let Some(song) = list
+                        .iter()
+                        .find(|s| s.name == line || s.url == Some(line.to_owned()))
+                    {
+                        if let Some(img) = song.get_image() {
                             song_img_list.push((song.clone(), img));
                         }
                     }
                 }
-                stream.write_all(&image_list_to_http(song_img_list)).unwrap();
+                stream
+                    .write_all(&image_list_to_http(song_img_list))
+                    .unwrap();
                 SUCCESS.to_string()
             }
             _ => "HTTP/1.1 404 NOT FOUND\r\n\r\n".to_string(),
@@ -222,16 +228,57 @@ fn json_to_http(json: String) -> String {
     )
 }
 
-fn image_list_to_http(list: Vec<(Song ,Vec<u8>)>) -> Vec<u8>{
+fn image_list_to_http(list: Vec<(Song, Vec<u8>)>) -> Vec<u8> {
     let head = "HTTP/1.1 200 Ok\r\nContent-Type: multipart/form-data;boundary=\"b\"";
-    let mut body_raw:Vec<u8> = Vec::new();
+    let mut body_raw: Vec<u8> = Vec::new();
     body_raw.append(&mut head.as_bytes().to_vec());
-    for (song, mut image) in list{
+    for (song, mut image) in list {
         body_raw.append(&mut "\r\n\r\n".as_bytes().to_vec());
         body_raw.append(&mut "--b\r\n".as_bytes().to_vec());
-        body_raw.append(&mut format!("Content-Type: image/jpeg; Content-Disposition: form-data; name=\"{}\"\r\n\r\n", song.name).as_bytes().to_vec());
+        body_raw.append(
+            &mut format!(
+                "Content-Type: image/jpeg; Content-Disposition: form-data; name={}\r\n\r\n",
+                song.name
+            )
+            .as_bytes()
+            .to_vec(),
+        );
         body_raw.append(&mut image);
     }
-    body_raw.append(&mut "--".as_bytes().to_vec());
     body_raw
+}
+
+#[test]
+fn test_image_to_http() {
+    let song = Song::from_string("I Will Give You My All 2017".to_string()).unwrap();
+    let img = song.get_image().unwrap();
+    let vec = vec![(song, img.clone())];
+    let http = image_list_to_http(vec);
+    let mut headers_buffer = vec![http_bytes::EMPTY_HEADER; 64];
+    let (r, mut b) = http_bytes::parse_response_header(&http, &mut headers_buffer)
+        .unwrap()
+        .unwrap();
+    assert!(r.status() == http_bytes::http::StatusCode::OK);
+    assert_eq!(
+        r.headers().get(header::CONTENT_TYPE),
+        Some(&HeaderValue::from_str("multipart/form-data;boundary=\"b\"").unwrap())
+    );
+
+    b.read_line(&mut String::new()).unwrap();
+    b.read_line(&mut String::new()).unwrap();
+    b.read_line(&mut String::new()).unwrap();
+    let mut img_from_body = Vec::new();
+    loop {
+        let mut buf = Vec::new();
+        let num = b.read_until(0x0A, &mut buf).unwrap();
+        if buf != b"--b\r\n" {
+            img_from_body.append(&mut buf)
+        } else {
+            break;
+        }
+        if num == 0 {
+            break;
+        }
+    }
+    assert_eq!(img_from_body, img)
 }
