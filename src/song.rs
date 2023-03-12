@@ -37,22 +37,26 @@ impl Song {
 
     pub fn from_file(path: PathBuf) -> Option<Song> {
         let tag = Tag::read_from_path(&path).unwrap_or(Tag::new());
-        let url = tag
-            .extended_texts()
-            .find(|item| item.description == *"url")
-            .map(|url| url.value.as_str());
+        let url_frame = tag.get("WOAF");
         let filename = path
             .file_stem()
             .unwrap_or_default()
             .to_str()
             .unwrap_or_default();
+        let url = match url_frame {
+            Some(frame) => {
+                frame.content().link().map(|s| s.to_string())
+            }
+            None => None
+        };
         Some(Song {
             name: tag.title().unwrap_or(filename).to_string(),
             artist: tag.artist().map(|s| s.to_string()),
-            url: url.map(|s| s.to_string()),
+            url,
             path: path.clone(),
             format: path.get_format(),
         })
+
     }
 
     pub fn from_string(string: String) -> Option<Song> {

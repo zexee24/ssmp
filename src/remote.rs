@@ -119,10 +119,12 @@ fn handle_stream(mut stream: TcpStream, ps: Sender<PlayerMessage>, state: Arc<Mu
             }
             "POST /add HTTP/1.1" => {
                 for line in body.lines() {
-                    ps.send(PlayerMessage::Add(
-                        Song::from_string(line.to_owned()).unwrap_or_default(),
-                    ))
-                    .unwrap();
+                    let songopt = Song::from_string(line.to_owned());
+                    if let Some(song) = songopt {
+                        ps.send(PlayerMessage::Add(song),
+                    )
+                    .unwrap();   
+                    }
                 }
                 SUCCESS.to_string()
             }

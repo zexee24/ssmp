@@ -46,7 +46,7 @@ impl Formattable for DirEntry {
 impl Formattable for PathBuf {
     fn get_format(&self) -> Format {
         if let Some(extension) = &self.extension() {
-            return Format::extension_to_filetype(extension.to_str().unwrap_or_default());
+            return Format::extension_to_filetype(&(".".to_owned() + extension.to_str().unwrap_or_default()));
         }
         Format::UNSUPPORTED
     }

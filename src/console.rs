@@ -24,11 +24,14 @@ pub(crate) fn handle_command(
         "volume" => ps
             .send(PlayerMessage::Volume(value.parse::<f32>().unwrap_or(1.0)))
             .unwrap(),
-        "add" => ps
-            .send(PlayerMessage::Add(
-                Song::from_string(value.to_string()).unwrap_or_default(),
-            ))
-            .unwrap(),
+        "add" => {
+            let songopt = Song::from_string(value.to_owned());
+            if let Some(song) = songopt {
+                ps.send(PlayerMessage::Add(song),
+            )
+            .unwrap();   
+            }
+        }
         "play" | "continue" | "p" => ps.send(PlayerMessage::Play).unwrap(),
         "stop" => ps.send(PlayerMessage::Stop).unwrap(),
         "clear" => ps.send(PlayerMessage::Clear).unwrap(),
@@ -73,6 +76,10 @@ pub(crate) fn handle_command(
                 if let Ok(num) = num {
                     list.push(num)
                 }
+            }
+            //Default behaviour
+            if list.is_empty() {
+                list.push(0)
             }
             ps.send(PlayerMessage::Skip(list.into())).unwrap();
         }

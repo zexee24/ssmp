@@ -1,6 +1,6 @@
 use std::{fs, io::Cursor, path::PathBuf, process::Command};
 
-use id3::{frame::Picture, Tag, TagLike};
+use id3::{frame::Picture, Tag, TagLike, Frame};
 use image::{DynamicImage, EncodableLayout, ImageOutputFormat};
 use rustube::{blocking::Video, Id};
 
@@ -96,7 +96,7 @@ fn test_filename() {
 
 fn set_metadata(song: Song, img: Option<DynamicImage>) -> Result<(), id3::Error> {
     let mut tag = Tag::read_from_path(song.path.clone()).unwrap_or(Tag::new());
-    tag.set_title(song.name);
+    tag.set_title(song.name.replace(['/', '\\'], "-"));
     if let Some(artist) = song.artist {
         tag.set_artist(artist)
     } else {
@@ -104,7 +104,8 @@ fn set_metadata(song: Song, img: Option<DynamicImage>) -> Result<(), id3::Error>
     }
     tag.set_album("");
     if let Some(url) = song.url {
-        tag.set_text("url", url)
+        let frame = Frame::link("WOAF", url);
+        tag.add_frame(frame);
     }
     let mut picture_data: Vec<u8> = Vec::new();
     if let Some(img) = img {
