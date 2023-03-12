@@ -21,6 +21,13 @@ pub struct Song {
     pub format: Format,
 }
 
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct SongWithImage{
+    pub song: Song,
+    //Encoded image with base64
+    pub image: String,
+}
+
 impl Song {
     pub fn create_source(&self) -> Result<Decoder<BufReader<File>>, DecoderError> {
         let buf = self.create_buf();
