@@ -1,21 +1,27 @@
 use std::{
     collections::HashMap,
     io::BufReader,
-    net::TcpStream,
+    net::{TcpStream, Incoming},
     sync::{atomic::AtomicBool, mpsc::Sender, Arc, Mutex},
-    thread,
+    thread, error::Error, task::{Context, Poll}, future::Future, time::Duration,
 };
 
-use base64::{Engine, engine};
+use base64::{engine, Engine};
 
+use image::Delay;
 use sha256::digest;
+use tokio::{net::TcpListener, time::sleep};
 
 use crate::{
-    commands::PlayerMessage, downloader, list_songs, player_state::PlayerState, song::{Song, SongWithImage},
+    commands::PlayerMessage,
+    downloader, list_songs,
+    player_state::PlayerState,
+    song::{Song, SongWithImage},
 };
 use std::io::prelude::*;
 use std::io::BufRead;
 use std::io::Read;
+use std::io::Error;
 use std::sync::atomic::Ordering::SeqCst;
 use std::*;
 
@@ -23,6 +29,66 @@ use crate::conf::*;
 
 static SUCCESS: &str = "HTTP/1.1 200 Ok \r\n\r\n";
 static FORBIDDEN: &str = "HTTP/1.1 401 Unauthorized \r\n\r\n";
+
+pub struct RemoteHandler<'a>{
+    ps: Sender<PlayerMessage>,
+    state: Arc<Mutex<PlayerState>>,
+    address_listeners: Vec<AddressListener<'a>>,
+}
+
+struct AddressListener<'a>{
+    address: &'a str,
+    stop_handle: Arc<AtomicBool>,
+}
+
+impl AddressListener<'_> {
+    const SUCCESS: &str = "HTTP/1.1 200 Ok \r\n\r\n";
+    const FORBIDDEN: &str = "HTTP/1.1 401 Unauthorized \r\n\r\n";
+    pub fn new(address: &str, stop_handle: Arc<AtomicBool>) -> Result<AddressListener, String> {
+        let adrl = AddressListener{ address, stop_handle };
+    }
+    async fn start(&self) -> Result<(), std::io::Error>{
+        let lister = TcpListener::bind(self.address).await?;
+        let sh = self.stop_handle.clone();
+        tokio::spawn(async move {
+            let handle = tokio::spawn(async move {
+                loop {
+                    let (s, a) = lister.accept().await.unwrap();
+                };
+            });
+            loop {
+                match sh.load(SeqCst) {
+                    true => handle.abort(),
+                    false => {sleep(Duration::from_millis(40));},
+                }
+            }
+        });
+        Ok(())
+    }
+
+    pub fn stop(&self) -> Result<(), String>{
+        self.stop_handle.store(true, SeqCst);
+
+    }
+}
+
+
+impl RemoteHandler<'_> {
+    
+    pub fn list_listeners(&self) -> Vec<&str>{
+        self.address_listeners.iter().map(|a| a.address).collect()
+    }
+    pub fn stop_listener(&self, addrs: String) -> Result<(), &str>{
+
+    }
+    
+    pub fn new_listener() {
+        let a = AddressListener { address: "" , stop_handle: Arc::new(AtomicBool::new(false)) };
+    }
+}
+
+
+
 pub fn start_remote(
     ps: Sender<PlayerMessage>,
     stop_remote: Arc<AtomicBool>,
@@ -184,7 +250,10 @@ fn handle_stream(mut stream: TcpStream, ps: Sender<PlayerMessage>, state: Arc<Mu
                         if let Some(img) = song.get_image() {
                             let engine = engine::general_purpose::STANDARD;
                             let image = engine.encode(img);
-                            song_img_list.push(SongWithImage { song: song.clone(), image});
+                            song_img_list.push(SongWithImage {
+                                song: song.clone(),
+                                image,
+                            });
                         }
                     }
                 }

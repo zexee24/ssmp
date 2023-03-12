@@ -22,7 +22,7 @@ pub struct Song {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct SongWithImage{
+pub struct SongWithImage {
     pub song: Song,
     //Encoded image with base64
     pub image: String,
