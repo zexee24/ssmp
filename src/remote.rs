@@ -1,16 +1,21 @@
 use std::{
     collections::HashMap,
     io::BufReader,
-    net::{TcpStream, Incoming},
+    net::{TcpStream},
     sync::{atomic::AtomicBool, mpsc::Sender, Arc, Mutex},
-    thread, error::Error, task::{Context, Poll}, future::Future, time::Duration,
+    thread::{self},
+    time::Duration,
 };
 
 use base64::{engine, Engine};
 
 use image::Delay;
 use sha256::digest;
-use tokio::{net::TcpListener, time::sleep};
+use tokio::{
+    io::{AsyncReadExt, AsyncWriteExt},
+    net::TcpListener,
+    time::sleep, select,
+};
 
 use crate::{
     commands::PlayerMessage,
@@ -21,73 +26,165 @@ use crate::{
 use std::io::prelude::*;
 use std::io::BufRead;
 use std::io::Read;
-use std::io::Error;
 use std::sync::atomic::Ordering::SeqCst;
 use std::*;
+use tokio::task;
 
 use crate::conf::*;
 
 static SUCCESS: &str = "HTTP/1.1 200 Ok \r\n\r\n";
 static FORBIDDEN: &str = "HTTP/1.1 401 Unauthorized \r\n\r\n";
 
-pub struct RemoteHandler<'a>{
+pub struct RemoteHandler<'a> {
     ps: Sender<PlayerMessage>,
     state: Arc<Mutex<PlayerState>>,
     address_listeners: Vec<AddressListener<'a>>,
 }
 
-struct AddressListener<'a>{
+struct AddressListener<'a> {
     address: &'a str,
     stop_handle: Arc<AtomicBool>,
+    ps: Sender<PlayerMessage>,
 }
 
 impl AddressListener<'_> {
     const SUCCESS: &str = "HTTP/1.1 200 Ok \r\n\r\n";
     const FORBIDDEN: &str = "HTTP/1.1 401 Unauthorized \r\n\r\n";
-    pub fn new(address: &str, stop_handle: Arc<AtomicBool>) -> Result<AddressListener, String> {
-        let adrl = AddressListener{ address, stop_handle };
+    async fn new(
+        address: &str,
+        stop_handle: Arc<AtomicBool>,
+        ps: Sender<PlayerMessage>,
+    ) -> Result<AddressListener, String> {
+        let adrl = AddressListener {
+            address,
+            stop_handle,
+            ps,
+        };
+        match adrl.start().await {
+            Ok(_) => Ok(adrl),
+            Err(e) => Err(format!("Unable to create listener for {e}")),
+        }
     }
-    async fn start(&self) -> Result<(), std::io::Error>{
+
+    async fn start(&self) -> Result<(), std::io::Error> {
         let lister = TcpListener::bind(self.address).await?;
         let sh = self.stop_handle.clone();
-        tokio::spawn(async move {
+        tokio::spawn(async move{
             let handle = tokio::spawn(async move {
+                println!("Connection Accepted:");
                 loop {
-                    let (s, a) = lister.accept().await.unwrap();
-                };
-            });
-            loop {
-                match sh.load(SeqCst) {
-                    true => handle.abort(),
-                    false => {sleep(Duration::from_millis(40));},
+                    let (s, _a) = lister.accept().await.unwrap();
+                    println!("Connection Accepted:");
+                    Self::handle_request(s).await;
                 }
+            });
+            let int = task::spawn(async move {
+                loop {
+                    match sh.load(SeqCst) {
+                        true => break,
+                        false => {
+                            sleep(Duration::from_millis(500)).await;
+                        }
+                    }
+                }
+            });
+            select! {
+                _ = handle => (),
+                _ = int => (),
             }
         });
         Ok(())
     }
 
-    pub fn stop(&self) -> Result<(), String>{
-        self.stop_handle.store(true, SeqCst);
+    async fn handle_request(mut s: tokio::net::TcpStream) {
+        let (mut r, mut w) = s.split();
+        let mut rq = [0; 1024];
+        r.read(&mut rq).await;
+        println!("Read {:?}", String::from_utf8(rq.to_vec()));
+        w.write_all(SUCCESS.as_bytes()).await.unwrap();
+        println!("Written");
+    }
 
+    fn stop(&self) {
+        self.stop_handle.store(true, SeqCst);
     }
 }
-
 
 impl RemoteHandler<'_> {
-    
-    pub fn list_listeners(&self) -> Vec<&str>{
+    pub fn list_listeners(&self) -> Vec<&str> {
         self.address_listeners.iter().map(|a| a.address).collect()
     }
-    pub fn stop_listener(&self, addrs: String) -> Result<(), &str>{
 
+    pub fn stop_listener(&self, addrs: String) -> Result<(), String> {
+        match self.address_listeners.iter().find(|a| a.address == addrs) {
+            Some(listener) => {
+                listener.stop();
+                Ok(())
+            }
+            None => Err(format!("Listener for {:?} does no exist", addrs)),
+        }
     }
-    
-    pub fn new_listener() {
-        let a = AddressListener { address: "" , stop_handle: Arc::new(AtomicBool::new(false)) };
+
+    pub fn new_listener(&self, addrs: String) {
+        let a = AddressListener::new(&addrs, Arc::new(AtomicBool::new(false)), self.ps.clone());
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use std::{sync::{atomic::AtomicBool, mpsc, Arc}, time::Duration};
 
+    use tokio::time::{sleep_until, Instant};
+
+    use crate::commands::PlayerMessage;
+
+    use super::AddressListener;
+
+    fn create_valid_listener() -> AddressListener<'static> {
+        let (s, _) = mpsc::channel::<PlayerMessage>();
+        let a = tokio_test::block_on(AddressListener::new(
+            "127.0.0.1:8000",
+            Arc::new(AtomicBool::new(false)),
+            s,
+        ));
+        assert!(a.is_ok());
+        a.unwrap()
+    }
+    #[test]
+    fn test_listener_valid_ip() {
+        let a = create_valid_listener;
+    }
+
+    #[test]
+    fn test_listener_invalid_ip() {
+        let (s, _) = mpsc::channel::<PlayerMessage>();
+        let adrl = tokio_test::block_on(AddressListener::new(
+            "slakhfjaskghak",
+            Arc::new(AtomicBool::new(false)),
+            s.clone(),
+        ));
+        assert!(adrl.is_err());
+        let adrl = tokio_test::block_on(AddressListener::new(
+            "195.251.52.14:90",
+            Arc::new(AtomicBool::new(false)),
+            s,
+        ));
+        assert!(adrl.is_err())
+    }
+
+    #[test]
+    fn test_response() {
+        let adrl = create_valid_listener();
+        let ip = adrl.address;
+        loop {
+            
+        }
+        let resp = reqwest::blocking::get("http://127.0.0.1:8000");
+        println!("{:?}", resp);
+        assert!(resp.is_ok());
+        resp.unwrap();
+    }
+}
 
 pub fn start_remote(
     ps: Sender<PlayerMessage>,
@@ -121,6 +218,7 @@ pub fn start_remote(
             }
         });
     }
+    println!("Returned");
 }
 
 fn handle_stream(mut stream: TcpStream, ps: Sender<PlayerMessage>, state: Arc<Mutex<PlayerState>>) {
