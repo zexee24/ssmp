@@ -125,8 +125,23 @@ impl AddressListener {
     async fn handle_request(mut s: tokio::net::TcpStream) {
         let request = Self::parse_request(BufReader::new(&mut s)).await;
         match request {
-            Ok(r) => {}
-            Err(e) => {}
+            Ok(r) => {
+                match r.protocol.as_str(){
+                    "HTTP/1.1" => {
+                        s.write_all(Self::handle_http1_1(r).as_bytes()).await.unwrap();
+                    }
+                    _ => s.write_all(ResponceTypes::BadReques(Some("Unsupported protocol")).get_responce().as_bytes()).await.unwrap()
+                }
+            }
+            Err(e) => {
+                s.write_all(ResponceTypes::BadReques(Some(&e)).get_responce().as_bytes()).await.unwrap();
+            }
+        }
+    }
+
+    fn handle_http1_1(r: Request) -> String{
+        match r.method{
+            _ => ResponceTypes::NotFound.get_responce()
         }
     }
 
@@ -303,6 +318,13 @@ mod tests {
             AddressListener::method_and_procol_from_line("GET / HTTP/1.1".to_string()),
             Ok(("GET /".to_string(), "HTTP/1.1".to_string()))
         );
+    }
+    #[tokio::test]
+    #[serial]
+    async fn test_bad_request(){
+        let adrl = create_valid_listener().await;
+        loop{
+        }
     }
 }
 
