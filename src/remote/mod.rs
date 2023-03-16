@@ -125,23 +125,32 @@ impl AddressListener {
     async fn handle_request(mut s: tokio::net::TcpStream) {
         let request = Self::parse_request(BufReader::new(&mut s)).await;
         match request {
-            Ok(r) => {
-                match r.protocol.as_str(){
-                    "HTTP/1.1" => {
-                        s.write_all(Self::handle_http1_1(r).as_bytes()).await.unwrap();
-                    }
-                    _ => s.write_all(ResponceTypes::BadReques(Some("Unsupported protocol")).get_responce().as_bytes()).await.unwrap()
+            Ok(r) => match r.protocol.trim() {
+                "HTTP/1.1" => {
+                    s.write_all(Self::handle_http1_1(r).await.as_bytes())
+                        .await
+                        .unwrap();
                 }
-            }
+                _ => s
+                    .write_all(
+                        ResponceTypes::BadReques(Some("Unsupported protocol"))
+                            .get_responce()
+                            .as_bytes(),
+                    )
+                    .await
+                    .unwrap(),
+            },
             Err(e) => {
-                s.write_all(ResponceTypes::BadReques(Some(&e)).get_responce().as_bytes()).await.unwrap();
+                s.write_all(ResponceTypes::BadReques(Some(&e)).get_responce().as_bytes())
+                    .await
+                    .unwrap();
             }
         }
     }
 
-    fn handle_http1_1(r: Request) -> String{
-        match r.method{
-            _ => ResponceTypes::NotFound.get_responce()
+    async fn handle_http1_1(r: Request) -> String {
+        match r.method {
+            _ => ResponceTypes::NotFound.get_responce(),
         }
     }
 
@@ -150,7 +159,6 @@ impl AddressListener {
         let mut m = String::new();
         buf.read_line(&mut m).await.map_err(|_| "Failed a read")?;
         let (method, protocol) = Self::method_and_procol_from_line(m)?;
-
         loop {
             let mut st = String::new();
             buf.read_line(&mut st).await.map_err(|_| "Failed a read")?;
@@ -249,7 +257,10 @@ impl RemoteHandler {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::{atomic::AtomicBool, mpsc, Arc};
+    use std::{
+        sync::{atomic::AtomicBool, mpsc, Arc},
+        time::Duration,
+    };
 
     use serial_test::serial;
 
@@ -320,11 +331,11 @@ mod tests {
         );
     }
     #[tokio::test]
+    #[ignore = "Manual test"]
     #[serial]
-    async fn test_bad_request(){
+    async fn test_manual() {
         let adrl = create_valid_listener().await;
-        loop{
-        }
+        tokio::time::sleep(Duration::from_secs(100)).await;
     }
 }
 
