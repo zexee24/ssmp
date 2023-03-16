@@ -1,16 +1,17 @@
 use std::{
     collections::HashMap,
+    io::{BufRead, Read, Write},
     sync::{atomic::AtomicBool, mpsc::Sender, Arc, Mutex},
     thread::{self},
     time::Duration,
 };
-
+pub(crate) mod auth;
 use base64::{engine, Engine};
 
-
+use itertools::Itertools;
 use sha256::digest;
 use tokio::{
-    io::{AsyncWriteExt, BufReader, AsyncBufReadExt},
+    io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader},
     net::{TcpListener, TcpStream},
     select,
 };
@@ -26,6 +27,8 @@ use std::*;
 use tokio::task;
 
 use crate::conf::*;
+
+use self::auth::Permission;
 
 static SUCCESS: &str = "HTTP/1.1 200 Ok \r\n\r\n";
 static FORBIDDEN: &str = "HTTP/1.1 401 Unauthorized \r\n\r\n";
@@ -43,15 +46,36 @@ struct AddressListener {
 }
 
 struct Request {
-    method : String,
+    method: String,
     protocol: String,
     headers: HashMap<String, String>,
+    permissions: Vec<Permission>,
     body: Option<String>,
 }
 
+enum ResponceTypes<'a> {
+    Success(Option<&'a str>),
+    Forbidden,
+    BadReques(Option<&'a str>),
+    NotFound,
+}
+
+impl ResponceTypes<'_> {
+    fn get_responce(&self) -> String {
+        match self {
+            ResponceTypes::Success(d) => {
+                format!("HTTP/1.1 200 Ok \r\n\r\n{}", d.unwrap_or(""))
+            }
+            ResponceTypes::Forbidden => "HTTP/1.1 401 Unauthorized \r\n\r\n".to_string(),
+            ResponceTypes::BadReques(s) => {
+                format!("HTTP/1.1 402 Bad request \r\n\r\n{}", s.unwrap_or(""))
+            }
+            ResponceTypes::NotFound => "HTTP/1.1 404 Not found \r\n\r\n".to_string(),
+        }
+    }
+}
+
 impl AddressListener {
-    const SUCCESS: &str = "HTTP/1.1 200 Ok \r\n\r\n";
-    const FORBIDDEN: &str = "HTTP/1.1 401 Unauthorized \r\n\r\n";
     async fn new(
         address: String,
         stop_handle: Arc<AtomicBool>,
@@ -99,39 +123,82 @@ impl AddressListener {
     }
 
     async fn handle_request(mut s: tokio::net::TcpStream) {
-        let mut buf = BufReader::new(&mut s);
-        let mut body: String = String::new();
-        let request = Self::parse_request(buf).await;
-
-        // Get
-
-        
-        s.write_all(SUCCESS.as_bytes()).await.unwrap();
+        let request = Self::parse_request(BufReader::new(&mut s)).await;
+        match request {
+            Ok(r) => {}
+            Err(e) => {}
+        }
     }
 
-    async fn parse_request(mut buf: BufReader<&mut TcpStream>) -> Result<Request, &str>{
+    async fn parse_request(mut buf: BufReader<&mut TcpStream>) -> Result<Request, String> {
         let mut headers: HashMap<String, String> = HashMap::new();
-        let mut method = String::new();
-        buf.read_line(&mut method);
+        let mut m = String::new();
+        buf.read_line(&mut m).await.map_err(|_| "Failed a read")?;
+        let (method, protocol) = Self::method_and_procol_from_line(m)?;
 
         loop {
             let mut st = String::new();
-            buf.read_line(&mut st);
-            if st != "\r\n"{
+            buf.read_line(&mut st).await.map_err(|_| "Failed a read")?;
+            if st != "\r\n" {
                 break;
             }
-            if let Some((k,v)) = st.split_once(":"){
+            if let Some((k, v)) = st.split_once(':') {
                 headers.insert(k.to_string(), v.to_string());
             }
         }
+        let key = match headers.get("Key") {
+            Some(k) => k,
+            None => "",
+        };
+        let permissions = Self::get_permissions(key);
+
         return match headers.get("Content-Length") {
-            Some(_) => todo!(),
-            None => Err("Unable to get content length for request that requires "),
-        }
+            Some(l) => {
+                let mut buffer = vec![
+                    0u8;
+                    l.parse::<usize>().map_err(|_| {
+                        "Unable to parse Content-Length".to_string()
+                    })?
+                ];
+                buf.read_exact(&mut buffer)
+                    .await
+                    .map_err(|_| "Unable to read promisec body".to_string())?;
+                let body = String::from_utf8(buffer)
+                    .map_err(|_| "Unable to parse body to a String".to_string())?;
+                Ok(Request {
+                    method,
+                    protocol,
+                    headers,
+                    body: Some(body),
+                    permissions,
+                })
+            }
+            None => Ok(Request {
+                method,
+                protocol,
+                headers,
+                body: None,
+                permissions,
+            }),
+        };
     }
 
-    fn method_and_procol_from_line(line: String) -> Result<(String, String), String>{
-        let (f,s,t) = line.split(" ").collect::<Vec<&str>>().get(0..2).map;
+    fn method_and_procol_from_line(line: String) -> Result<(String, String), String> {
+        let (f, s, t) = line
+            .split(' ')
+            .collect_tuple()
+            .ok_or("Failed to process method")?;
+        Ok((format!("{} {}", f, s), t.to_string()))
+    }
+
+    fn get_permissions(key: &str) -> Vec<Permission> {
+        let conf = Configuration::get_conf();
+        for k in conf.keys {
+            if k.key == key {
+                return k.permissions;
+            }
+        }
+        vec![]
     }
 
     fn stop(&self) {
@@ -139,9 +206,12 @@ impl AddressListener {
     }
 }
 
-impl RemoteHandler{
+impl RemoteHandler {
     pub fn list_listeners(&self) -> Vec<&str> {
-        self.address_listeners.iter().map(|a| a.address.as_str()).collect()
+        self.address_listeners
+            .iter()
+            .map(|a| a.address.as_str())
+            .collect()
     }
 
     pub fn stop_listener(&self, addrs: String) -> Result<(), String> {
@@ -154,8 +224,9 @@ impl RemoteHandler{
         }
     }
 
-    pub async fn new_listener(&mut self, addrs: String) -> Result<(), String>{
-        let a = AddressListener::new(addrs, Arc::new(AtomicBool::new(false)), self.ps.clone()).await?;
+    pub async fn new_listener(&mut self, addrs: String) -> Result<(), String> {
+        let a =
+            AddressListener::new(addrs, Arc::new(AtomicBool::new(false)), self.ps.clone()).await?;
         self.address_listeners.push(a);
         Ok(())
     }
@@ -163,10 +234,7 @@ impl RemoteHandler{
 
 #[cfg(test)]
 mod tests {
-    use std::{
-        sync::{atomic::AtomicBool, mpsc, Arc},
-    };
-
+    use std::sync::{atomic::AtomicBool, mpsc, Arc};
 
     use serial_test::serial;
 
@@ -176,7 +244,12 @@ mod tests {
 
     async fn create_valid_listener() -> AddressListener {
         let (s, _) = mpsc::channel::<PlayerMessage>();
-        let a = AddressListener::new("127.0.0.1:8000".to_string(), Arc::new(AtomicBool::new(false)), s).await;
+        let a = AddressListener::new(
+            "127.0.0.1:8000".to_string(),
+            Arc::new(AtomicBool::new(false)),
+            s,
+        )
+        .await;
         assert!(a.is_ok());
         a.unwrap()
     }
@@ -194,13 +267,15 @@ mod tests {
             "slakhfjaskghak".to_string(),
             Arc::new(AtomicBool::new(false)),
             s.clone(),
-        ).await;
+        )
+        .await;
         assert!(adrl.is_err());
         let adrl = AddressListener::new(
             "195.251.52.14:90".to_string(),
             Arc::new(AtomicBool::new(false)),
             s,
-        ).await;
+        )
+        .await;
         assert!(adrl.is_err())
     }
 
@@ -208,7 +283,7 @@ mod tests {
     #[serial]
     async fn test_response() {
         let adrl = create_valid_listener().await;
-        let ip = format!("http://{}",adrl.address);
+        let ip = format!("http://{}", adrl.address);
         let resp = reqwest::get(ip).await;
         assert!(resp.is_ok());
         resp.unwrap();
@@ -217,10 +292,17 @@ mod tests {
     #[tokio::test]
     #[serial]
     #[should_panic]
-    async fn test_stopping(){
+    async fn test_stopping() {
         let a = create_valid_listener().await;
         a.stop();
         test_response();
+    }
+    #[test]
+    fn test_method_line_correct() {
+        assert_eq!(
+            AddressListener::method_and_procol_from_line("GET / HTTP/1.1".to_string()),
+            Ok(("GET /".to_string(), "HTTP/1.1".to_string()))
+        );
     }
 }
 
@@ -259,8 +341,12 @@ pub fn start_remote(
     println!("Returned");
 }
 
-fn handle_stream(mut stream: TcpStream, ps: Sender<PlayerMessage>, state: Arc<Mutex<PlayerState>>) {
-    let mut reader = BufReader::new(&mut stream);
+fn handle_stream(
+    mut stream: std::net::TcpStream,
+    ps: Sender<PlayerMessage>,
+    state: Arc<Mutex<PlayerState>>,
+) {
+    let mut reader = std::io::BufReader::new(&mut stream);
 
     let mut header_map: HashMap<String, String> = HashMap::new();
     let mut request = String::new();
@@ -284,7 +370,7 @@ fn handle_stream(mut stream: TcpStream, ps: Sender<PlayerMessage>, state: Arc<Mu
     }
 
     // This line is dumb
-    let authorized: bool = Configuration::get_conf().access_key
+    let authorized: bool = Configuration::get_conf().keys.get(0).unwrap().key
         == digest(
             header_map
                 .get("Access-Key:")
