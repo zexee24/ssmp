@@ -1,7 +1,8 @@
+use core::sync;
 use std::{
     collections::HashMap,
     io::{BufRead, Read, Write},
-    sync::{atomic::AtomicBool, mpsc::Sender, Arc, Mutex},
+    sync::{atomic::AtomicBool, Arc, Mutex},
     thread::{self},
     time::Duration,
 };
@@ -14,6 +15,7 @@ use tokio::{
     io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader},
     net::{TcpListener, TcpStream},
     select,
+    sync::mpsc::Sender,
 };
 
 use crate::{
@@ -56,8 +58,36 @@ struct Request {
 enum ResponceTypes<'a> {
     Success(Option<&'a str>),
     Forbidden,
-    BadReques(Option<&'a str>),
+    BadRequest(Option<&'a str>),
     NotFound,
+}
+
+macro_rules! check_permissions {
+    ($a: expr, $b: expr) => {{
+        if let Err(e) = $b.check_permissions($a) {
+            return e;
+        };
+    }};
+}
+
+macro_rules! send_until_succ {
+    ($a: expr, $b: expr) => {
+        while let Err(e) = $a.send($b).await {
+            println!("{:?}", e);
+        }
+    };
+}
+
+macro_rules! require_body {
+    ($b: expr) => {
+        match $b {
+            Some(b) => b,
+            None => {
+                return ResponceTypes::BadRequest(Some("This request requires a body"))
+                    .get_responce()
+            }
+        }
+    };
 }
 
 impl ResponceTypes<'_> {
@@ -67,11 +97,24 @@ impl ResponceTypes<'_> {
                 format!("HTTP/1.1 200 Ok \r\n\r\n{}", d.unwrap_or(""))
             }
             ResponceTypes::Forbidden => "HTTP/1.1 401 Unauthorized \r\n\r\n".to_string(),
-            ResponceTypes::BadReques(s) => {
+            ResponceTypes::BadRequest(s) => {
                 format!("HTTP/1.1 402 Bad request \r\n\r\n{}", s.unwrap_or(""))
             }
             ResponceTypes::NotFound => "HTTP/1.1 404 Not found \r\n\r\n".to_string(),
         }
+    }
+}
+
+impl Request {
+    pub fn check_permissions(&self, required_permissions: &[Permission]) -> Result<(), String> {
+        if self
+            .permissions
+            .iter()
+            .all(|p| required_permissions.contains(p))
+        {
+            return Err(ResponceTypes::Forbidden.get_responce());
+        }
+        Ok(())
     }
 }
 
@@ -95,13 +138,14 @@ impl AddressListener {
     async fn start(&self) -> Result<(), std::io::Error> {
         let lister = TcpListener::bind(self.address.as_str()).await?;
         let sh = self.stop_handle.clone();
+        let psx = self.ps.clone();
         tokio::spawn(async move {
             let handle = task::spawn(async move {
                 println!("Connection Accepted:");
                 loop {
                     let (s, _a) = lister.accept().await.unwrap();
                     println!("Connection Accepted:");
-                    Self::handle_request(s).await;
+                    Self::handle_request(s, psx.clone()).await;
                 }
             });
             let int = tokio::spawn(async move {
@@ -122,18 +166,18 @@ impl AddressListener {
         Ok(())
     }
 
-    async fn handle_request(mut s: tokio::net::TcpStream) {
+    async fn handle_request(mut s: tokio::net::TcpStream, ps: Sender<PlayerMessage>) {
         let request = Self::parse_request(BufReader::new(&mut s)).await;
         match request {
             Ok(r) => match r.protocol.trim() {
                 "HTTP/1.1" => {
-                    s.write_all(Self::handle_http1_1(r).await.as_bytes())
+                    s.write_all(Self::handle_http1_1(r, ps).await.as_bytes())
                         .await
                         .unwrap();
                 }
                 _ => s
                     .write_all(
-                        ResponceTypes::BadReques(Some("Unsupported protocol"))
+                        ResponceTypes::BadRequest(Some("Unsupported protocol"))
                             .get_responce()
                             .as_bytes(),
                     )
@@ -141,15 +185,61 @@ impl AddressListener {
                     .unwrap(),
             },
             Err(e) => {
-                s.write_all(ResponceTypes::BadReques(Some(&e)).get_responce().as_bytes())
-                    .await
-                    .unwrap();
+                s.write_all(
+                    ResponceTypes::BadRequest(Some(&e))
+                        .get_responce()
+                        .as_bytes(),
+                )
+                .await
+                .unwrap();
             }
         }
     }
 
-    async fn handle_http1_1(r: Request) -> String {
-        match r.method {
+    async fn handle_http1_1(r: Request, ps: Sender<PlayerMessage>) -> String {
+        match r.method.as_str() {
+            "GET /" => {
+                check_permissions!(&[Permission::Info], r);
+                ResponceTypes::Success(None).get_responce()
+            }
+            "POST /play" => {
+                check_permissions!(&[Permission::PlayPause], r);
+                send_until_succ!(ps, PlayerMessage::Play);
+                ResponceTypes::Success(None).get_responce()
+            }
+            "POST /pause" => {
+                check_permissions!(&[Permission::PlayPause], r);
+                send_until_succ!(ps, PlayerMessage::Pause);
+                ResponceTypes::Success(None).get_responce()
+            }
+            "POST /skip" => {
+                check_permissions!(&[Permission::Seek], r);
+                let body = require_body!(r.body);
+                let mut l = vec![];
+                for line in body.lines() {
+                    if let Ok(n) = line.parse::<usize>() {
+                        l.push(n)
+                    }
+                }
+                send_until_succ!(ps, PlayerMessage::Skip(l.clone().into()));
+                ResponceTypes::Success(None).get_responce()
+            }
+            "POST /add" => {
+                check_permissions!(&[Permission::Add], r);
+                let body = require_body!(r.body);
+                for line in body.lines() {
+                    if let Some(song) = Song::from_string(line.to_owned()) {
+                        send_until_succ!(ps, PlayerMessage::Add(song.clone()));
+                    }
+                }
+                ResponceTypes::Success(None).get_responce()
+            }
+            "POST /download" => {
+                check_permissions!(&[Permission::Download], r);
+                let body = require_body!(r.body);
+                //for line in body {}
+                ResponceTypes::Success(None).get_responce()
+            }
             _ => ResponceTypes::NotFound.get_responce(),
         }
     }
@@ -263,13 +353,12 @@ mod tests {
     };
 
     use serial_test::serial;
-
-    use crate::commands::PlayerMessage;
+    use tokio::sync::mpsc::channel;
 
     use super::AddressListener;
 
     async fn create_valid_listener() -> AddressListener {
-        let (s, _) = mpsc::channel::<PlayerMessage>();
+        let (s, _) = channel(32);
         let a = AddressListener::new(
             "127.0.0.1:8000".to_string(),
             Arc::new(AtomicBool::new(false)),
@@ -288,7 +377,7 @@ mod tests {
     #[tokio::test]
     #[serial]
     async fn test_listener_invalid_ip() {
-        let (s, _) = mpsc::channel::<PlayerMessage>();
+        let (s, _) = channel(32);
         let adrl = AddressListener::new(
             "slakhfjaskghak".to_string(),
             Arc::new(AtomicBool::new(false)),
@@ -340,7 +429,7 @@ mod tests {
 }
 
 pub fn start_remote(
-    ps: Sender<PlayerMessage>,
+    ps: std::sync::mpsc::Sender<PlayerMessage>,
     stop_remote: Arc<AtomicBool>,
     state: Arc<Mutex<PlayerState>>,
     addresses: Vec<String>,
@@ -376,7 +465,7 @@ pub fn start_remote(
 
 fn handle_stream(
     mut stream: std::net::TcpStream,
-    ps: Sender<PlayerMessage>,
+    ps: std::sync::mpsc::Sender<PlayerMessage>,
     state: Arc<Mutex<PlayerState>>,
 ) {
     let mut reader = std::io::BufReader::new(&mut stream);
@@ -423,11 +512,11 @@ fn handle_stream(
         let response = match request.trim() {
             "GET / HTTP/1.1" => SUCCESS.to_string(),
             "POST /pause HTTP/1.1" => {
-                ps.send(PlayerMessage::Pause).unwrap();
+                ps.send(PlayerMessage::Pause);
                 SUCCESS.to_string()
             }
             "POST /play HTTP/1.1" => {
-                ps.send(PlayerMessage::Play).unwrap();
+                ps.send(PlayerMessage::Play);
                 SUCCESS.to_string()
             }
             "POST /skip HTTP/1.1" => {
@@ -437,14 +526,14 @@ fn handle_stream(
                         list.push(n)
                     }
                 }
-                ps.send(PlayerMessage::Skip(list.into())).unwrap();
+                ps.send(PlayerMessage::Skip(list.into()));
                 SUCCESS.to_string()
             }
             "POST /add HTTP/1.1" => {
                 for line in body.lines() {
                     let songopt = Song::from_string(line.to_owned());
                     if let Some(song) = songopt {
-                        ps.send(PlayerMessage::Add(song)).unwrap();
+                        ps.send(PlayerMessage::Add(song));
                     }
                 }
                 SUCCESS.to_string()
@@ -469,20 +558,22 @@ fn handle_stream(
                         let result = downloader::download(l);
                         match result {
                             Err(e) => println!("{e}"),
-                            Ok(song) => pst.send(PlayerMessage::Add(song)).unwrap(),
+                            Ok(song) =>
+                            /*pst.send(PlayerMessage::Add(song))*/
+                            {
+                                ()
+                            }
                         }
                     });
                 }
                 SUCCESS.to_string()
             }
             "POST /volume HTTP/1.1" => {
-                ps.send(PlayerMessage::Volume(body.parse::<f32>().unwrap_or(1.0)))
-                    .unwrap();
+                ps.send(PlayerMessage::Volume(body.parse::<f32>().unwrap_or(1.0)));
                 SUCCESS.to_string()
             }
             "POST /speed HTTP/1.1" => {
-                ps.send(PlayerMessage::Speed(body.parse::<f32>().unwrap_or(1.0)))
-                    .unwrap();
+                ps.send(PlayerMessage::Speed(body.parse::<f32>().unwrap_or(1.0)));
                 SUCCESS.to_string()
             }
             "GET /list HTTP/1.1" => {

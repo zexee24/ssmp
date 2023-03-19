@@ -3,6 +3,7 @@ use std::{fs, io::Cursor, path::PathBuf, process::Command};
 use id3::{frame::Picture, Frame, Tag, TagLike};
 use image::{DynamicImage, EncodableLayout, ImageOutputFormat};
 use rustube::{blocking::Video, Id};
+use youtube_dl::YoutubeDl;
 
 use crate::{conf::Configuration, format::Format, song::Song};
 
@@ -39,6 +40,33 @@ pub(crate) fn download(url: String) -> Result<Song, String> {
         }
         Err(e) => Err(format!("Unable to get video id: {e}")),
     };
+}
+
+pub(crate) async fn download_dlp(url: String) {
+    let foldr = Configuration::get_conf().owned_path;
+    let output = YoutubeDl::new(url)
+        .youtube_dl_path("D:/Projects/ssmusicPlayer/ssmp/yt-dlp.exe")
+        .socket_timeout("15")
+        .extract_audio(true)
+        .format("ba")
+        .output_directory(foldr.to_str().unwrap())
+        .download(true)
+        .output_template("%(title)s.%(ext)s")
+        .run_async()
+        .await
+        .unwrap();
+    let v = output.into_single_video().unwrap();
+    println!("{:?}", v.title)
+}
+
+#[cfg(test)]
+mod tests {
+
+    use super::download_dlp;
+    #[tokio::test]
+    async fn test_dlp() {
+        download_dlp("https://www.youtube.com/watch?v=Uk8sAsB25vk".to_string()).await
+    }
 }
 
 fn download_best_stream(video: &Video) -> Option<PathBuf> {

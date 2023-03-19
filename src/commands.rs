@@ -1,5 +1,6 @@
 use crate::song::Song;
 
+#[derive(Debug)]
 pub enum PlayerMessage {
     Stop,
     Play,
