@@ -25,7 +25,7 @@ pub struct Song {
 pub struct SongWithImage {
     pub song: Song,
     //Encoded image with base64
-    pub image: String,
+    pub image: Option<String>,
 }
 
 impl Song {

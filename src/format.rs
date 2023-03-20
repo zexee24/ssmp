@@ -19,13 +19,12 @@ impl Format {
         }
         Format::UNSUPPORTED
     }
-    pub fn filetype_to_extension(format: Format) -> Option<String> {
-        for (ex, fr) in FORMAT_MAP.iter() {
-            if &format == fr {
-                return Some(ex.to_string());
-            }
+    pub fn filetype_to_extension(&self) -> Option<String> {
+        match self {
+            Format::MP3 => Some(".mp3".to_owned()),
+            Format::MP4 => Some(".mp4".to_owned()),
+            Format::UNSUPPORTED => None,
         }
-        None
     }
 }
 

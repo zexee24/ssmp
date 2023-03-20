@@ -11,6 +11,7 @@ use commands::PlayerMessage;
 
 use format::{Format, Formattable};
 use rodio::{OutputStream, Sink, Source};
+use tokio::sync::mpsc::channel;
 
 use std::collections::VecDeque;
 
@@ -19,20 +20,21 @@ use std::io::{stdin, BufRead};
 
 use std::path::PathBuf;
 use std::process::exit;
-use std::sync::atomic::AtomicBool;
 
-use std::sync::{mpsc, Arc, Mutex};
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use std::*;
 
 use crate::conf::Configuration;
 use crate::console::handle_command;
 use crate::player_state::PlayerState;
+use crate::remote::RemoteHandler;
 use crate::song::Song;
 
-fn main() {
+#[tokio::main]
+async fn main() {
     println!("Starting player");
-    let (ps, pr) = mpsc::channel::<commands::PlayerMessage>();
+    let (ps, mut pr) = channel(128);
     let status: Arc<Mutex<PlayerState>> = Arc::new(Mutex::new(PlayerState {
         now_playing: None,
         queue: VecDeque::new(),
@@ -42,8 +44,8 @@ fn main() {
         source_duration: None,
     }));
     let status_sender = status.clone();
-    let stop_remote: Arc<AtomicBool> = Arc::new(AtomicBool::new(false));
     let conf = Configuration::get_conf();
+    let mut remote_handler = RemoteHandler::new(ps.clone(), status.clone());
 
     std::thread::spawn(move || {
         let mut queue: VecDeque<Song> = VecDeque::new();
@@ -124,12 +126,15 @@ fn main() {
 
     for command in stdin().lock().lines() {
         match command {
-            Ok(command) => handle_command(
-                command.trim(),
-                ps.clone(),
-                stop_remote.clone(),
-                status.clone(),
-            ),
+            Ok(command) => {
+                handle_command(
+                    command.trim(),
+                    ps.clone(),
+                    status.clone(),
+                    &mut remote_handler,
+                )
+                .await
+            }
             Err(_) => println!("Error handling input stream"),
         }
     }

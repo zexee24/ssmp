@@ -1,58 +1,61 @@
-use std::{fs, io::Cursor, path::PathBuf, process::Command};
+use std::{
+    collections::hash_map::DefaultHasher,
+    fs,
+    hash::{Hash, Hasher},
+    io::Cursor,
+    path::PathBuf,
+    process::Command,
+    str::FromStr,
+};
 
 use id3::{frame::Picture, Frame, Tag, TagLike};
 use image::{DynamicImage, EncodableLayout, ImageOutputFormat};
-use rustube::{blocking::Video, Id};
 use youtube_dl::YoutubeDl;
 
 use crate::{conf::Configuration, format::Format, song::Song};
 
-pub(crate) fn download(url: String) -> Result<Song, String> {
-    let id = Id::from_raw(url.as_str());
-    return match id {
-        Ok(id) => {
-            let video = Video::from_id(id.as_owned()).unwrap();
-            let img = if let Some(thumbnal_max_res) = &video
-                .video_details()
-                .thumbnails
-                .iter()
-                .max_by_key(|t| t.width)
-            {
-                get_image(thumbnal_max_res.url.clone())
-            } else {
-                None
-            };
-
-            let path = download_best_stream(&video).ok_or("Error in downloading stream")?;
-            let name = video.title();
-            let file_path = change_format_and_name_better(name, path).unwrap();
-            let song = Song {
-                name: name.to_string(),
-                artist: Some(video.video_details().author.clone()),
-                url: Some(url),
-                path: file_path,
-                format: Format::MP3,
-            };
-            if let Err(e) = set_metadata(song.clone(), img) {
-                println!("Error when writing metadata: {:?}", e)
-            }
-            Ok(song)
-        }
-        Err(e) => Err(format!("Unable to get video id: {e}")),
-    };
-}
-
-pub(crate) async fn download_dlp(url: String) {
-    let fldr = Configuration::get_conf().owned_path;
-    let data = YoutubeDl::new(url)
+pub(crate) async fn download_dlp(url: String) -> Result<Song, String> {
+    let mut fldr = Configuration::get_conf().owned_path;
+    let mut hash = DefaultHasher::new();
+    url.clone().hash(&mut hash);
+    let tfn = format!("{}.temp", hash.finish());
+    let data = YoutubeDl::new(&url)
         .socket_timeout("15")
+        .youtube_dl_path("C:/Program Files/yt-dlp/yt-dlp.exe")
+        .download(true)
+        .format("ba")
+        .output_template(&tfn)
+        .output_directory(fldr.to_str().unwrap())
         .run_async()
-        .await
-        .unwrap();
-    let d = data.into_single_video().unwrap();
-    let file_name = get_fn(d.title);
-    let artist = d.artist;
-    
+        .await.map_err(|e| format!("failed for {}", e))?;
+    let d = data.into_single_video().ok_or("Tried a playlist")?;
+    let file_name = gen_filename(&d.title);
+    let artist = match d.artist {
+        Some(a) => Some(a),
+        None => d.uploader,
+    };
+    fldr.push(PathBuf::from_str(&tfn).unwrap());
+    let p = change_format_and_name_better(&file_name, fldr).unwrap();
+    let s = Song {
+        name: d.title,
+        artist,
+        url: Some(url),
+        path: p,
+        format: Format::MP3,
+    };
+    let mut img = None;
+    let thumbnail = d.thumbnails;
+    if let Some(tnv) = thumbnail {
+        if let Some(t) = tnv.iter().max_by_key(|t| t.filesize.unwrap_or(0)) {
+            if let Some(u) = &t.url {
+                img = get_image(u.to_string()).await;
+            }
+        }
+    }
+    if let Err(e) = set_metadata(s.clone(), img) {
+        println!("Error when writing metadata: {:?}", e)
+    }
+    Ok(s)
 }
 
 #[cfg(test)]
@@ -61,35 +64,22 @@ mod tests {
     use super::download_dlp;
     use super::*;
     #[tokio::test]
+    #[ignore = "It downloads"]
     async fn test_dlp() {
-        download_dlp("https://www.youtube.com/watch?v=Uk8sAsB25vk".to_string()).await
+        download_dlp("https://www.youtube.com/watch?v=Uk8sAsB25vk".to_string())
+            .await
+            .unwrap();
     }
 
     #[test]
     fn test_filename() {
-        let new_name = generate_filename("Heilutaan / Eurobeat Remix", Format::MP3);
-        assert_eq!(new_name, "heilutaan - eurobeat remix.mp3")
+        let new_name = gen_filename("Heilutaan / Eurobeat Remix");
+        assert_eq!(new_name, "heilutaan - eurobeat remix")
     }
-}
-
-fn download_best_stream(video: &Video) -> Option<PathBuf> {
-    let owned = Configuration::get_conf().owned_path;
-    let mut streams = video.streams().clone();
-    streams.sort_by_key(|s| s.audio_sample_rate);
-    for stream in streams {
-        if stream.includes_video_track {
-            continue;
-        }
-        match stream.blocking_download_to_dir(&owned) {
-            Ok(stream) => return Some(stream),
-            Err(e) => println!("Stream {:?} failed, trying next one", e),
-        }
-    }
-    None
 }
 
 pub(crate) fn change_format_and_name_better(name: &str, path: PathBuf) -> Result<PathBuf, String> {
-    let new_file_name = generate_filename(name, Format::MP3);
+    let new_file_name = gen_filename(name) + &Format::MP3.filetype_to_extension().unwrap();
     let mut new_loc = Configuration::get_conf().owned_path;
     new_loc.push(new_file_name);
 
@@ -101,24 +91,15 @@ pub(crate) fn change_format_and_name_better(name: &str, path: PathBuf) -> Result
     Ok(new_loc)
 }
 
-fn generate_filename(name: &str, format: Format) -> String {
-    let n = name
-        .replace(['/', '\\'], "-")
-        .replace([':', '.', '!', '?'], "")
-        .to_ascii_lowercase();
-    n + &Format::filetype_to_extension(format).unwrap_or(".mp3".to_owned())
-}
-
-fn get_fn(name: String) -> String {
-    name
-        .replace(['/', '\\'], "-")
-        .replace([':', '.', '!', '?'], "")
+fn gen_filename(name: &str) -> String {
+    name.replace(['/', '\\'], "-")
+        .replace([':', '.', '!', '?', '\"', '\''], "")
         .to_ascii_lowercase()
 }
 
-fn get_image(url: String) -> Option<DynamicImage> {
-    let resp = reqwest::blocking::get(url).ok()?;
-    let bytes = resp.bytes().unwrap();
+async fn get_image(url: String) -> Option<DynamicImage> {
+    let resp = reqwest::get(url).await.ok()?;
+    let bytes = resp.bytes().await.unwrap();
     image::io::Reader::new(Cursor::new(bytes.as_bytes()))
         .with_guessed_format()
         .ok()?

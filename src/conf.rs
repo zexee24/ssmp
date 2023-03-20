@@ -1,10 +1,10 @@
 use serde::{Deserialize, Serialize};
 
-use crate::remote::auth::{Key, Permission};
+use crate::remote::auth::Key;
+use std::fs::read_to_string;
 use std::path::PathBuf;
 use std::result::Result::*;
 use std::str::FromStr;
-use std::{collections::HashMap, fs::read_to_string};
 
 static CONF_PATH: &str = "conf.json";
 
