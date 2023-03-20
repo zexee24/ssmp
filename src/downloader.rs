@@ -43,29 +43,32 @@ pub(crate) fn download(url: String) -> Result<Song, String> {
 }
 
 pub(crate) async fn download_dlp(url: String) {
-    let foldr = Configuration::get_conf().owned_path;
-    let output = YoutubeDl::new(url)
-        .youtube_dl_path("D:/Projects/ssmusicPlayer/ssmp/yt-dlp.exe")
+    let fldr = Configuration::get_conf().owned_path;
+    let data = YoutubeDl::new(url)
         .socket_timeout("15")
-        .extract_audio(true)
-        .format("ba")
-        .output_directory(foldr.to_str().unwrap())
-        .download(true)
-        .output_template("%(title)s.%(ext)s")
         .run_async()
         .await
         .unwrap();
-    let v = output.into_single_video().unwrap();
-    println!("{:?}", v.title)
+    let d = data.into_single_video().unwrap();
+    let file_name = get_fn(d.title);
+    let artist = d.artist;
+    
 }
 
 #[cfg(test)]
 mod tests {
 
     use super::download_dlp;
+    use super::*;
     #[tokio::test]
     async fn test_dlp() {
         download_dlp("https://www.youtube.com/watch?v=Uk8sAsB25vk".to_string()).await
+    }
+
+    #[test]
+    fn test_filename() {
+        let new_name = generate_filename("Heilutaan / Eurobeat Remix", Format::MP3);
+        assert_eq!(new_name, "heilutaan - eurobeat remix.mp3")
     }
 }
 
@@ -106,6 +109,13 @@ fn generate_filename(name: &str, format: Format) -> String {
     n + &Format::filetype_to_extension(format).unwrap_or(".mp3".to_owned())
 }
 
+fn get_fn(name: String) -> String {
+    name
+        .replace(['/', '\\'], "-")
+        .replace([':', '.', '!', '?'], "")
+        .to_ascii_lowercase()
+}
+
 fn get_image(url: String) -> Option<DynamicImage> {
     let resp = reqwest::blocking::get(url).ok()?;
     let bytes = resp.bytes().unwrap();
@@ -114,12 +124,6 @@ fn get_image(url: String) -> Option<DynamicImage> {
         .ok()?
         .decode()
         .ok()
-}
-
-#[test]
-fn test_filename() {
-    let new_name = generate_filename("Heilutaan / Eurobeat Remix", Format::MP3);
-    assert_eq!(new_name, "heilutaan - eurobeat remix.mp3")
 }
 
 fn set_metadata(song: Song, img: Option<DynamicImage>) -> Result<(), id3::Error> {
