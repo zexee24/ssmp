@@ -8,6 +8,7 @@
     "default_volume" : 0.3,
     "owned_path" : "songs/",
     "outer_paths" : [],
+    "ytdlp_path" : "C:/Program Files/yt-dlp/yt-dlp.exe",
     "ip" : [
         "0.0.0.0:8008",
         "127.0.0.1:8008",

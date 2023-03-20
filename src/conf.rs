@@ -10,11 +10,11 @@ static CONF_PATH: &str = "conf.json";
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct Configuration {
-    #[serde()]
     pub keys: Vec<Key>,
     pub default_volume: f32,
     pub owned_path: PathBuf,
     pub outer_paths: Vec<PathBuf>,
+    pub ytdlp_path: String,
     pub ip: Vec<String>,
 }
 
@@ -26,6 +26,7 @@ impl Default for Configuration {
             owned_path: PathBuf::from_str("songs/").unwrap(),
             outer_paths: Vec::new(),
             ip: vec!["0.0.0.0:8000".to_string(), "127.0.0.1:8000".to_string()],
+            ytdlp_path: "".to_string(),
         }
     }
 }

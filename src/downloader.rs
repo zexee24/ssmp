@@ -15,13 +15,14 @@ use youtube_dl::YoutubeDl;
 use crate::{conf::Configuration, format::Format, song::Song};
 
 pub(crate) async fn download_dlp(url: String) -> Result<Song, String> {
+    let conf = Configuration::get_conf();
     let mut fldr = Configuration::get_conf().owned_path;
     let mut hash = DefaultHasher::new();
     url.clone().hash(&mut hash);
     let tfn = format!("{}.temp", hash.finish());
     let data = YoutubeDl::new(&url)
         .socket_timeout("15")
-        .youtube_dl_path("C:/Program Files/yt-dlp/yt-dlp.exe")
+        .youtube_dl_path(conf.ytdlp_path)
         .download(true)
         .format("ba")
         .output_template(&tfn)
