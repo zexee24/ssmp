@@ -47,7 +47,7 @@ async fn main() {
     let conf = Configuration::get_conf();
     let mut remote_handler = RemoteHandler::new(ps.clone(), status.clone());
 
-    std::thread::spawn(move || {
+    tokio::spawn(async move {
         let mut queue: VecDeque<Song> = VecDeque::new();
         let mut now_playing: Option<Song> = None;
         let mut current_duration: Option<Duration> = None;
