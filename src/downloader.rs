@@ -28,7 +28,8 @@ pub(crate) async fn download_dlp(url: String) -> Result<Song, String> {
         .output_template(&tfn)
         .output_directory(fldr.to_str().unwrap())
         .run_async()
-        .await.map_err(|e| format!("failed for {}", e))?;
+        .await
+        .map_err(|e| format!("failed for {}", e))?;
     let d = data.into_single_video().ok_or("Tried a playlist")?;
     let file_name = gen_filename(&d.title);
     let artist = match d.artist {

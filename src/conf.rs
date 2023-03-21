@@ -32,6 +32,7 @@ impl Default for Configuration {
 }
 
 impl Configuration {
+    #[allow(clippy::result_large_err)]
     fn new() -> Result<Configuration, Configuration> {
         match read_to_string(CONF_PATH) {
             Ok(string) => {

@@ -13,7 +13,6 @@ use sha256::digest;
 use tokio::{
     io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader},
     net::{TcpListener, TcpStream},
-    select,
     sync::mpsc::Sender,
 };
 
@@ -146,7 +145,7 @@ impl AddressListener {
                     Self::handle_request(s, psx.clone(), state.clone()).await;
                 }
             });
-            let int = tokio::spawn(async move {
+            tokio::spawn(async move {
                 loop {
                     match sh.load(SeqCst) {
                         true => break,
@@ -155,11 +154,10 @@ impl AddressListener {
                         }
                     }
                 }
-            });
-            select! {
-                _ = handle => (),
-                _ = int => (),
-            }
+            })
+            .await
+            .unwrap();
+            handle.abort();
         });
         Ok(())
     }
@@ -535,11 +533,12 @@ mod tests {
 
     #[tokio::test]
     #[serial]
-    #[should_panic]
     async fn test_stopping() {
         let a = create_valid_listener().await;
         a.stop();
-        test_response();
+        let ip = format!("http://{}", a.address);
+        let resp = reqwest::get(ip).await;
+        assert!(resp.is_err())
     }
     #[test]
     fn test_method_line_correct() {

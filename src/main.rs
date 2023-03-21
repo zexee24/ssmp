@@ -31,7 +31,7 @@ use crate::player_state::PlayerState;
 use crate::remote::RemoteHandler;
 use crate::song::Song;
 
-#[tokio::main]
+#[tokio::main(flavor = "multi_thread")]
 async fn main() {
     println!("Starting player");
     let (ps, mut pr) = channel(128);

@@ -85,6 +85,21 @@ pub(crate) async fn handle_command(
                                     }
                                 }
                             }
+                            "all" => {
+                                for listener in remote_handler.list_listeners() {
+                                    match remote_handler.stop_listener(listener.to_owned()) {
+                                        Ok(_) => {
+                                            println!("Successfully stopped remote on {}", listener)
+                                        }
+                                        Err(e) => {
+                                            println!(
+                                                "Failed to stop remote on {} because {}",
+                                                listener, e
+                                            )
+                                        }
+                                    }
+                                }
+                            }
                             _ => match remote_handler.stop_listener(addr.trim().to_owned()) {
                                 Ok(_) => println!("Successfully stopped remote on {}", addr),
                                 Err(e) => {
