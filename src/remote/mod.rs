@@ -90,11 +90,18 @@ impl ResponceTypes<'_> {
     fn get_responce(&self) -> String {
         match self {
             ResponceTypes::Success(d) => {
-                format!("HTTP/1.1 200 Ok \r\n\r\n{}", d.unwrap_or(""))
+                match d {
+                    Some(body) => format!("HTTP/1.1 200 Ok \r\nContent-Type: text/json\r\nContent-Length: {}\r\n\r\n{}", body.as_bytes().len(), body),
+                    None => "HTTP/1.1 200 Ok \r\n\r\n".to_owned()
+                }
+                
             }
             ResponceTypes::Forbidden => "HTTP/1.1 401 Unauthorized \r\n\r\n".to_string(),
             ResponceTypes::BadRequest(s) => {
-                format!("HTTP/1.1 402 Bad request \r\n\r\n{}", s.unwrap_or(""))
+                match s {
+                    Some(body) =>format!("HTTP/1.1 402 Bad request\r\nContent-Type: text/plain\r\nContent-Lenght: {}\r\n\r\n{}", body.as_bytes().len(), body),
+                    None => "HTTP/1.1 402 Bad request\r\n\r\n".to_owned()
+                }
             }
             ResponceTypes::NotFound => "HTTP/1.1 404 Not found \r\n\r\n".to_string(),
         }
