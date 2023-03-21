@@ -270,6 +270,18 @@ impl AddressListener {
                 send_until_succ!(ps, PlayerMessage::Skip(l.clone().into()));
                 ResponceTypes::Success(None).get_responce()
             }
+            "POST /reorder" => {
+                check_permissions!(&[Permission::Seek], r);
+                let body = require_body!(r.body);
+                for line in body.lines(){
+                    if let Some((f,t))=  line.split_once(' ') {
+                            if let (Ok(f), Ok(t)) = (f.parse::<usize>(), t.parse::<usize>()) {
+                                send_until_succ!(ps,PlayerMessage::ReOrder(f, t))
+                            }
+                        }
+                }
+                ResponceTypes::Success(None).get_responce()
+            }
             "POST /add" => {
                 check_permissions!(&[Permission::Add], r);
                 let body = require_body!(r.body);

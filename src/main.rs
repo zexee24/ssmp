@@ -113,10 +113,13 @@ async fn main() {
                     }
                     PlayerMessage::Clear => queue.clear(),
                     PlayerMessage::Speed(s) => sink.set_speed(s),
-                    PlayerMessage::ReOrder(origin, dest) => {
+                    PlayerMessage::ReOrder(origin, mut dest) => {
                         let elem = queue.remove(origin);
                         if let Some(song) = elem {
-                            queue.insert(dest, song)
+                            if dest >= origin{
+                                dest -= 1;
+                            }
+                            queue.insert(dest.min(queue.len()), song)
                         }
                     }
                 }
