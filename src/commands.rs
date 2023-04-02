@@ -11,4 +11,5 @@ pub enum PlayerMessage {
     Clear,
     Speed(f32),
     ReOrder(usize, usize),
+    Seek(u64)
 }

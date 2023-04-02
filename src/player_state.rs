@@ -11,5 +11,6 @@ pub struct PlayerState {
     pub volume: f32,
     pub speed: f32,
     pub paused: bool,
-    pub source_duration: Option<Duration>,
+    pub total_duration: Option<Duration>,
+    pub current_duration: Option<Duration>,
 }

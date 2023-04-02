@@ -22,8 +22,10 @@ use std::path::PathBuf;
 use std::process::exit;
 
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use std::*;
+
+use mp3_duration;
 
 use crate::conf::Configuration;
 use crate::console::handle_command;
@@ -31,7 +33,7 @@ use crate::player_state::PlayerState;
 use crate::remote::RemoteHandler;
 use crate::song::Song;
 
-#[tokio::main(flavor = "multi_thread")]
+#[tokio::main]
 async fn main() {
     println!("Starting player");
     let (ps, mut pr) = channel(128);
@@ -41,7 +43,8 @@ async fn main() {
         volume: 1.0,
         speed: 1.0,
         paused: true,
-        source_duration: None,
+        total_duration: None,
+        current_duration: None,
     }));
     let status_sender = status.clone();
     let conf = Configuration::get_conf();
@@ -51,6 +54,8 @@ async fn main() {
         let mut queue: VecDeque<Song> = VecDeque::new();
         let mut now_playing: Option<Song> = None;
         let mut current_duration: Option<Duration> = None;
+        let mut total_duration: Option<Duration> = None;
+        let mut start: Instant = Instant::now();
         let (_stream, stream_handle) = OutputStream::try_default().unwrap();
         let sink = Sink::try_new(&stream_handle).unwrap();
         sink.set_volume(conf.default_volume);
@@ -63,7 +68,9 @@ async fn main() {
                     let source = song.create_source();
                     match source {
                         Ok(source) => {
-                            current_duration = source.total_duration();
+                            total_duration = mp3_duration::from_path(&song.path).ok();
+                            start = Instant::now();
+                            println!("Current dur is {:?}", total_duration);
                             now_playing = Some(song);
                             sink.append(source);
                         }
@@ -73,6 +80,10 @@ async fn main() {
             } else if sink.empty() && queue.is_empty() {
                 now_playing = None;
                 current_duration = None;
+                total_duration = None;
+            }
+            if let Some(_) = now_playing{
+                current_duration = Some(start.elapsed());
             }
 
             // Update state
@@ -82,7 +93,8 @@ async fn main() {
             editable.speed = sink.speed();
             editable.volume = sink.volume();
             editable.paused = sink.is_paused();
-            editable.source_duration = current_duration;
+            editable.total_duration = total_duration;
+            editable.current_duration = current_duration;
             drop(editable);
 
             // Handle a message if one is recieved
@@ -95,7 +107,9 @@ async fn main() {
                     }
                     PlayerMessage::Pause => sink.pause(),
                     PlayerMessage::Play => sink.play(),
-                    PlayerMessage::Volume(v) => sink.set_volume(v),
+                    PlayerMessage::Volume(v) => {
+                        sink.set_volume(v)
+                    },
                     PlayerMessage::Skip(list) => {
                         let mut sorted = list.clone();
                         sorted.sort_by(|a, b| b.cmp(a));
@@ -121,6 +135,9 @@ async fn main() {
                             }
                             queue.insert(dest.min(queue.len()), song)
                         }
+                    }
+                    PlayerMessage::Seek(n) => {
+                        sink.stop();
                     }
                 }
             }
