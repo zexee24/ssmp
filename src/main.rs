@@ -3,14 +3,13 @@ pub mod conf;
 pub mod console;
 pub mod downloader;
 pub mod format;
+mod player;
 pub mod player_state;
 pub mod remote;
 pub mod song;
 
-use commands::PlayerMessage;
-
 use format::{Format, Formattable};
-use rodio::{OutputStream, Sink, Source};
+
 use tokio::sync::mpsc::channel;
 
 use std::collections::VecDeque;
@@ -22,13 +21,12 @@ use std::path::PathBuf;
 use std::process::exit;
 
 use std::sync::{Arc, Mutex};
-use std::time::{Duration, Instant};
-use std::*;
 
-use mp3_duration;
+use std::*;
 
 use crate::conf::Configuration;
 use crate::console::handle_command;
+use crate::player::start_player;
 use crate::player_state::PlayerState;
 use crate::remote::RemoteHandler;
 use crate::song::Song;
@@ -36,7 +34,7 @@ use crate::song::Song;
 #[tokio::main]
 async fn main() {
     println!("Starting player");
-    let (ps, mut pr) = channel(128);
+    let (ps, pr) = channel(128);
     let status: Arc<Mutex<PlayerState>> = Arc::new(Mutex::new(PlayerState {
         now_playing: None,
         queue: VecDeque::new(),
@@ -46,103 +44,8 @@ async fn main() {
         total_duration: None,
         current_duration: None,
     }));
-    let status_sender = status.clone();
-    let conf = Configuration::get_conf();
     let mut remote_handler = RemoteHandler::new(ps.clone(), status.clone());
-
-    tokio::spawn(async move {
-        let mut queue: VecDeque<Song> = VecDeque::new();
-        let mut now_playing: Option<Song> = None;
-        let mut current_duration: Option<Duration> = None;
-        let mut total_duration: Option<Duration> = None;
-        let mut start: Instant = Instant::now();
-        let (_stream, stream_handle) = OutputStream::try_default().unwrap();
-        let sink = Sink::try_new(&stream_handle).unwrap();
-        sink.set_volume(conf.default_volume);
-
-        loop {
-            // Add the next song to the queue if the queue is empty
-            if sink.empty() && !queue.is_empty() {
-                let song = queue.pop_front();
-                if let Some(song) = song {
-                    let source = song.create_source();
-                    match source {
-                        Ok(source) => {
-                            total_duration = mp3_duration::from_path(&song.path).ok();
-                            start = Instant::now();
-                            println!("Current dur is {:?}", total_duration);
-                            now_playing = Some(song);
-                            sink.append(source);
-                        }
-                        Err(e) => println!("Error reached when appending: {:#?}", e),
-                    }
-                }
-            } else if sink.empty() && queue.is_empty() {
-                now_playing = None;
-                current_duration = None;
-                total_duration = None;
-            }
-            if let Some(_) = now_playing{
-                current_duration = Some(start.elapsed());
-            }
-
-            // Update state
-            let mut editable = status_sender.lock().unwrap();
-            editable.now_playing = now_playing.clone();
-            editable.queue = queue.clone();
-            editable.speed = sink.speed();
-            editable.volume = sink.volume();
-            editable.paused = sink.is_paused();
-            editable.total_duration = total_duration;
-            editable.current_duration = current_duration;
-            drop(editable);
-
-            // Handle a message if one is recieved
-            let message_or_error = pr.try_recv();
-            if let Ok(message) = message_or_error {
-                match message {
-                    PlayerMessage::Stop => {
-                        queue.clear();
-                        sink.stop();
-                    }
-                    PlayerMessage::Pause => sink.pause(),
-                    PlayerMessage::Play => sink.play(),
-                    PlayerMessage::Volume(v) => {
-                        sink.set_volume(v)
-                    },
-                    PlayerMessage::Skip(list) => {
-                        let mut sorted = list.clone();
-                        sorted.sort_by(|a, b| b.cmp(a));
-                        for index in sorted.as_ref() {
-                            match index {
-                                0 => sink.stop(),
-                                _ => {
-                                    queue.remove(*index - 1);
-                                }
-                            }
-                        }
-                    }
-                    PlayerMessage::Add(s) => {
-                        queue.push_back(s);
-                    }
-                    PlayerMessage::Clear => queue.clear(),
-                    PlayerMessage::Speed(s) => sink.set_speed(s),
-                    PlayerMessage::ReOrder(origin, mut dest) => {
-                        let elem = queue.remove(origin);
-                        if let Some(song) = elem {
-                            if dest >= origin{
-                                dest -= 1;
-                            }
-                            queue.insert(dest.min(queue.len()), song)
-                        }
-                    }
-                    PlayerMessage::Seek(n) => {
-                        sink.stop();
-                    }
-                }
-            }
-        }
-    });
+    start_player(pr, status.clone()).await;
 
     for command in stdin().lock().lines() {
         match command {

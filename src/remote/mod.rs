@@ -94,7 +94,7 @@ impl ResponceTypes<'_> {
                     Some(body) => format!("HTTP/1.1 200 Ok \r\nContent-Type: text/json\r\nContent-Length: {}\r\n\r\n{}", body.as_bytes().len(), body),
                     None => "HTTP/1.1 200 Ok \r\n\r\n".to_owned()
                 }
-                
+
             }
             ResponceTypes::Forbidden => "HTTP/1.1 401 Unauthorized \r\n\r\n".to_string(),
             ResponceTypes::BadRequest(s) => {
@@ -280,12 +280,12 @@ impl AddressListener {
             "POST /reorder" => {
                 check_permissions!(&[Permission::Seek], r);
                 let body = require_body!(r.body);
-                for line in body.lines(){
-                    if let Some((f,t))=  line.split_once(' ') {
-                            if let (Ok(f), Ok(t)) = (f.parse::<usize>(), t.parse::<usize>()) {
-                                send_until_succ!(ps,PlayerMessage::ReOrder(f, t))
-                            }
+                for line in body.lines() {
+                    if let Some((f, t)) = line.split_once(' ') {
+                        if let (Ok(f), Ok(t)) = (f.parse::<usize>(), t.parse::<usize>()) {
+                            send_until_succ!(ps, PlayerMessage::ReOrder(f, t))
                         }
+                    }
                 }
                 ResponceTypes::Success(None).get_responce()
             }
@@ -496,7 +496,8 @@ mod tests {
             volume: 1.0,
             speed: 1.0,
             paused: true,
-            source_duration: None,
+            total_duration: None,
+            current_duration: None,
         }))
     }
 

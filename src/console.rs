@@ -148,6 +148,10 @@ pub(crate) async fn handle_command(
             }
             ps.send(PlayerMessage::Skip(list.into())).await.unwrap();
         }
+        "seek" => match value.parse::<u64>() {
+            Ok(t) => ps.send(PlayerMessage::Seek(t)).await.unwrap(),
+            Err(e) => println!("Input a valid integer {:?}", e),
+        },
         "download" | "d" => {
             let val = (*value).to_string();
             tokio::spawn(async {
