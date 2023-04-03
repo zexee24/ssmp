@@ -352,6 +352,17 @@ impl AddressListener {
                     Err(e) => ResponceTypes::BadRequest(Some(&e.to_string())).get_responce(),
                 }
             }
+            "POST /seek" => {
+                check_permissions!(&[Permission::Seek], r);
+                let body = require_body!(r.body);
+                match body.parse::<u64>(){
+                    Ok(n) => {
+                        send_until_succ!(ps, PlayerMessage::Seek(n));
+                        ResponceTypes::Success(None).get_responce()
+                    },
+                    Err(e) => ResponceTypes::BadRequest(Some(&e.to_string())).get_responce(),
+                }
+            }
             _ => ResponceTypes::NotFound.get_responce(),
         }
     }
