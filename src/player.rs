@@ -21,7 +21,7 @@ pub async fn start_player(mut pr: Receiver<PlayerMessage>, status_sender: Arc<Mu
         let (_stream, stream_handle) = OutputStream::try_default().unwrap();
         let sink = Sink::try_new(&stream_handle).unwrap();
         sink.set_volume(conf.default_volume);
-        let mut dt = Instant::now();
+        let mut t = Instant::now();
         loop {
             // Add the next song to the queue if the queue is empty
             if sink.empty() && !queue.is_empty() {
@@ -33,7 +33,7 @@ pub async fn start_player(mut pr: Receiver<PlayerMessage>, status_sender: Arc<Mu
                             total_duration = mp3_duration::from_path(&song.path).ok();
                             now_playing = Some(song);
                             sink.append(source);
-                            dt = Instant::now();
+                            t = Instant::now();
                         }
                         Err(e) => println!("Error reached when appending: {:#?}", e),
                     }
@@ -43,11 +43,8 @@ pub async fn start_player(mut pr: Receiver<PlayerMessage>, status_sender: Arc<Mu
                 current_duration = None;
                 total_duration = None;
             }
-            if now_playing.is_some() {
-                if !sink.is_paused(){
-                    current_duration = Some(current_duration.unwrap_or(Duration::new(0,0)).saturating_add(dt.elapsed()/*.mul_f32(sink.speed())*/));
-                }
-                dt = Instant::now();
+            if now_playing.is_some() && !sink.is_paused() {
+                current_duration = Some(t.elapsed().mul_f32(sink.speed()));
             }
 
             // Update state
@@ -70,7 +67,10 @@ pub async fn start_player(mut pr: Receiver<PlayerMessage>, status_sender: Arc<Mu
                         sink.stop();
                     }
                     PlayerMessage::Pause => sink.pause(),
-                    PlayerMessage::Play => sink.play(),
+                    PlayerMessage::Play => {
+                        sink.play();
+                        t=Instant::now().checked_sub(current_duration.unwrap_or(Duration::from_secs(0))).unwrap();
+                    },
                     PlayerMessage::Volume(v) => sink.set_volume(v),
                     PlayerMessage::Skip(list) => {
                         let mut sorted = list.clone();
@@ -88,7 +88,10 @@ pub async fn start_player(mut pr: Receiver<PlayerMessage>, status_sender: Arc<Mu
                         queue.push_back(s);
                     }
                     PlayerMessage::Clear => queue.clear(),
-                    PlayerMessage::Speed(s) => sink.set_speed(s),
+                    PlayerMessage::Speed(s) => {
+                        t = Instant::now().checked_sub(current_duration.unwrap_or(Duration::new(0,0).mul_f32(s))).unwrap();
+                        sink.set_speed(s);
+                    },
                     PlayerMessage::ReOrder(origin, mut dest) => {
                         let elem = queue.remove(origin);
                         if let Some(song) = elem {
@@ -102,7 +105,11 @@ pub async fn start_player(mut pr: Receiver<PlayerMessage>, status_sender: Arc<Mu
                         sink.stop();
                         if let Some(song) = &now_playing {
                             match song.create_source() {
-                                Ok(s) => sink.append(s.skip_duration(Duration::from_secs(n))),
+                                Ok(s) => {
+                                    let dur = Duration::from_secs(n);
+                                    sink.append(s.skip_duration(dur));
+                                    t = Instant::now().checked_sub(dur).unwrap();
+                                },
                                 Err(e) => println!("Failed seek because {:?}", e),
                             }
                         }
