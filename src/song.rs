@@ -2,7 +2,6 @@ use std::{
     fs::File,
     io::{self, BufReader},
     path::PathBuf,
-    time::Duration,
 };
 
 use id3::{frame::PictureType, Tag, TagLike};

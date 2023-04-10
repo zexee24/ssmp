@@ -69,8 +69,10 @@ pub async fn start_player(mut pr: Receiver<PlayerMessage>, status_sender: Arc<Mu
                     PlayerMessage::Pause => sink.pause(),
                     PlayerMessage::Play => {
                         sink.play();
-                        t=Instant::now().checked_sub(current_duration.unwrap_or(Duration::from_secs(0))).unwrap();
-                    },
+                        t = Instant::now()
+                            .checked_sub(current_duration.unwrap_or(Duration::from_secs(0)))
+                            .unwrap();
+                    }
                     PlayerMessage::Volume(v) => sink.set_volume(v),
                     PlayerMessage::Skip(list) => {
                         let mut sorted = list.clone();
@@ -89,9 +91,11 @@ pub async fn start_player(mut pr: Receiver<PlayerMessage>, status_sender: Arc<Mu
                     }
                     PlayerMessage::Clear => queue.clear(),
                     PlayerMessage::Speed(s) => {
-                        t = Instant::now().checked_sub(current_duration.unwrap_or(Duration::new(0,0).mul_f32(s))).unwrap();
+                        t = Instant::now()
+                            .checked_sub(current_duration.unwrap_or(Duration::new(0, 0).mul_f32(s)))
+                            .unwrap();
                         sink.set_speed(s);
-                    },
+                    }
                     PlayerMessage::ReOrder(origin, mut dest) => {
                         let elem = queue.remove(origin);
                         if let Some(song) = elem {
@@ -109,7 +113,7 @@ pub async fn start_player(mut pr: Receiver<PlayerMessage>, status_sender: Arc<Mu
                                     let dur = Duration::from_secs(n);
                                     sink.append(s.skip_duration(dur));
                                     t = Instant::now().checked_sub(dur).unwrap();
-                                },
+                                }
                                 Err(e) => println!("Failed seek because {:?}", e),
                             }
                         }

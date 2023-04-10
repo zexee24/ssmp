@@ -29,6 +29,8 @@ use crate::conf::*;
 
 use self::auth::Permission;
 
+static CORS_HEADERS: &str = "Access-Control-Allow-Methods: POST, GET, OPTIONS\r\nAccess-Control-Allow-Headers: Key\r\nAccess-Control-Allow-Origin: *";
+
 pub struct RemoteHandler {
     ps: Sender<PlayerMessage>,
     state: Arc<Mutex<PlayerState>>,
@@ -90,19 +92,19 @@ impl ResponceTypes<'_> {
         match self {
             ResponceTypes::Success(d) => {
                 match d {
-                    Some(body) => format!("HTTP/1.1 200 Ok \r\nContent-Type: text/json\r\nContent-Length: {}\r\n\r\n{}", body.as_bytes().len(), body),
+                    Some(body) => format!("HTTP/1.1 200 Ok \r\n{}\r\nContent-Type: text/json\r\nContent-Length: {}\r\n\r\n{}",CORS_HEADERS, body.as_bytes().len(), body),
                     None => "HTTP/1.1 200 Ok \r\n\r\n".to_owned()
                 }
 
             }
-            ResponceTypes::Forbidden => "HTTP/1.1 401 Unauthorized \r\n\r\n".to_string(),
+            ResponceTypes::Forbidden => format!("HTTP/1.1 401 Unauthorized \r\n{}\r\n\r\n", CORS_HEADERS),
             ResponceTypes::BadRequest(s) => {
                 match s {
-                    Some(body) =>format!("HTTP/1.1 402 Bad request\r\nContent-Type: text/plain\r\nContent-Lenght: {}\r\n\r\n{}", body.as_bytes().len(), body),
+                    Some(body) =>format!("HTTP/1.1 402 Bad request\r\n{}\r\nContent-Type: text/plain\r\nContent-Lenght: {}\r\n\r\n{}",CORS_HEADERS, body.as_bytes().len(), body),
                     None => "HTTP/1.1 402 Bad request\r\n\r\n".to_owned()
                 }
             }
-            ResponceTypes::NotFound => "HTTP/1.1 404 Not found \r\n\r\n".to_string(),
+            ResponceTypes::NotFound => "HTTP/1.1 404 Not Found\r\n\r\n".to_string(),
         }
     }
 }
@@ -208,6 +210,9 @@ impl AddressListener {
         state: Arc<Mutex<PlayerState>>,
     ) -> String {
         match r.method.as_str() {
+            "OPTIONS /" =>{
+                "HTTP/1.1 204 No Content\r\nAccess-Control-Allow-Methods: POST, GET, OPTIONS\r\nAccess-Control-Allow-Headers: Key\r\nAccess-Control-Allow-Origin: *\r\n\r\n".to_string()
+            }
             "GET /" => {
                 check_permissions!(&[Permission::Info], r);
                 let s = state.lock().unwrap();
@@ -383,16 +388,16 @@ impl AddressListener {
                 break;
             }
             if let Some((k, v)) = st.split_once(':') {
-                headers.insert(k.trim().to_string(), v.trim().to_string());
+                headers.insert(k.trim().to_lowercase(), v.trim().to_string());
             }
         }
-        let key = match headers.get("Key") {
+        let key = match headers.get("key") {
             Some(k) => k.to_owned(),
             None => "".to_owned(),
         };
         let permissions = Self::get_permissions(&key);
 
-        return match headers.get("Content-Length") {
+        return match headers.get("content-length") {
             Some(l) => {
                 let mut buffer = vec![
                     0u8;
