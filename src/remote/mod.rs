@@ -9,7 +9,6 @@ use base64::{engine, Engine};
 
 use futures::future::join_all;
 use itertools::Itertools;
-use sha256::digest;
 use tokio::{
     io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader},
     net::{TcpListener, TcpStream},
@@ -388,8 +387,8 @@ impl AddressListener {
             }
         }
         let key = match headers.get("Key") {
-            Some(k) => digest(k.to_owned()),
-            None => digest(""),
+            Some(k) => k.to_owned(),
+            None => "".to_owned(),
         };
         let permissions = Self::get_permissions(&key);
 
