@@ -213,6 +213,9 @@ impl AddressListener {
             "OPTIONS /" =>{
                 "HTTP/1.1 204 No Content\r\nAccess-Control-Allow-Methods: POST, GET, OPTIONS\r\nAccess-Control-Allow-Headers: Key\r\nAccess-Control-Allow-Origin: *\r\n\r\n".to_string()
             }
+            "OPTIONS /list" =>{
+                "HTTP/1.1 204 No Content\r\nAccess-Control-Allow-Methods: POST, GET, OPTIONS\r\nAccess-Control-Allow-Headers: Key\r\nAccess-Control-Allow-Origin: *\r\n\r\n".to_string()
+            }
             "GET /" => {
                 check_permissions!(&[Permission::Info], r);
                 let s = state.lock().unwrap();
