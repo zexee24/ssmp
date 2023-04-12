@@ -93,7 +93,7 @@ impl ResponceTypes<'_> {
             ResponceTypes::Success(d) => {
                 match d {
                     Some(body) => format!("HTTP/1.1 200 Ok \r\n{}\r\nContent-Type: text/json\r\nContent-Length: {}\r\n\r\n{}",CORS_HEADERS, body.as_bytes().len(), body),
-                    None => "HTTP/1.1 200 Ok \r\n\r\n".to_owned()
+                    None => format!("HTTP/1.1 200 Ok \r\n{}\r\n",CORS_HEADERS)
                 }
 
             }
@@ -214,6 +214,9 @@ impl AddressListener {
                 "HTTP/1.1 204 No Content\r\nAccess-Control-Allow-Methods: POST, GET, OPTIONS\r\nAccess-Control-Allow-Headers: Key\r\nAccess-Control-Allow-Origin: *\r\n\r\n".to_string()
             }
             "OPTIONS /list" =>{
+                "HTTP/1.1 204 No Content\r\nAccess-Control-Allow-Methods: POST, GET, OPTIONS\r\nAccess-Control-Allow-Headers: Key\r\nAccess-Control-Allow-Origin: *\r\n\r\n".to_string()
+            }
+            "OPTIONS /add" =>{
                 "HTTP/1.1 204 No Content\r\nAccess-Control-Allow-Methods: POST, GET, OPTIONS\r\nAccess-Control-Allow-Headers: Key\r\nAccess-Control-Allow-Origin: *\r\n\r\n".to_string()
             }
             "GET /" => {
