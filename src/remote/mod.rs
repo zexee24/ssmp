@@ -93,7 +93,7 @@ impl ResponceTypes<'_> {
             ResponceTypes::Success(d) => {
                 match d {
                     Some(body) => format!("HTTP/1.1 200 Ok \r\n{}\r\nContent-Type: text/json\r\nContent-Length: {}\r\n\r\n{}",CORS_HEADERS, body.as_bytes().len(), body),
-                    None => format!("HTTP/1.1 200 Ok \r\n{}\r\n",CORS_HEADERS)
+                    None => format!("HTTP/1.1 200 Ok \r\n{}\r\n\r\n",CORS_HEADERS)
                 }
 
             }
@@ -101,10 +101,10 @@ impl ResponceTypes<'_> {
             ResponceTypes::BadRequest(s) => {
                 match s {
                     Some(body) =>format!("HTTP/1.1 402 Bad request\r\n{}\r\nContent-Type: text/plain\r\nContent-Lenght: {}\r\n\r\n{}",CORS_HEADERS, body.as_bytes().len(), body),
-                    None => "HTTP/1.1 402 Bad request\r\n\r\n".to_owned()
+                    None => format!("HTTP/1.1 402 Bad request\r\n{}\r\n\r\n", CORS_HEADERS)
                 }
             }
-            ResponceTypes::NotFound => "HTTP/1.1 404 Not Found\r\n\r\n".to_string(),
+            ResponceTypes::NotFound => format!("HTTP/1.1 404 Not Found\r\n{}\r\n\r\n", CORS_HEADERS),
         }
     }
 }
@@ -210,15 +210,6 @@ impl AddressListener {
         state: Arc<Mutex<PlayerState>>,
     ) -> String {
         match r.method.as_str() {
-            "OPTIONS /" =>{
-                "HTTP/1.1 204 No Content\r\nAccess-Control-Allow-Methods: POST, GET, OPTIONS\r\nAccess-Control-Allow-Headers: Key\r\nAccess-Control-Allow-Origin: *\r\n\r\n".to_string()
-            }
-            "OPTIONS /list" =>{
-                "HTTP/1.1 204 No Content\r\nAccess-Control-Allow-Methods: POST, GET, OPTIONS\r\nAccess-Control-Allow-Headers: Key\r\nAccess-Control-Allow-Origin: *\r\n\r\n".to_string()
-            }
-            "OPTIONS /add" =>{
-                "HTTP/1.1 204 No Content\r\nAccess-Control-Allow-Methods: POST, GET, OPTIONS\r\nAccess-Control-Allow-Headers: Key\r\nAccess-Control-Allow-Origin: *\r\n\r\n".to_string()
-            }
             "GET /" => {
                 check_permissions!(&[Permission::Info], r);
                 let s = state.lock().unwrap();
@@ -373,6 +364,7 @@ impl AddressListener {
                     Err(e) => ResponceTypes::BadRequest(Some(&e.to_string())).get_responce(),
                 }
             }
+            _ if r.method.as_str().starts_with("OPTIONS") => "HTTP/1.1 204 No Content\r\nAccess-Control-Allow-Methods: POST, GET, OPTIONS\r\nAccess-Control-Allow-Headers: Key\r\nAccess-Control-Allow-Origin: *\r\n\r\n".to_string(),
             _ => ResponceTypes::NotFound.get_responce(),
         }
     }
