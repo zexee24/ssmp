@@ -364,6 +364,17 @@ impl AddressListener {
                     Err(e) => ResponceTypes::BadRequest(Some(&e.to_string())).get_responce(),
                 }
             }
+            "POST /proxy" => {
+                check_permissions!(&[Permission::Download],r);
+                let body = require_body!(r.body);
+                match reqwest::Client::new().get(body).send().await{
+                    Ok(r) => {
+                        let b = r.text().await.unwrap();
+                        ResponceTypes::Success(Some(&b)).get_responce()
+                    },
+                    Err(e) => ResponceTypes::BadRequest(Some(&e.to_string())).get_responce(),
+                }
+            }
             _ if r.method.as_str().starts_with("OPTIONS") => "HTTP/1.1 204 No Content\r\nAccess-Control-Allow-Methods: POST, GET, OPTIONS\r\nAccess-Control-Allow-Headers: Key\r\nAccess-Control-Allow-Origin: *\r\n\r\n".to_string(),
             _ => ResponceTypes::NotFound.get_responce(),
         }
