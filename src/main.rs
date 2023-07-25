@@ -2,101 +2,139 @@ pub mod commands;
 pub mod conf;
 pub mod console;
 pub mod downloader;
+pub mod files;
 pub mod format;
 mod player;
 pub mod player_state;
 pub mod remote;
 pub mod song;
 
-use format::{Format, Formattable};
+use gtk::prelude::*;
+use player::Player;
+use relm4::component::{AsyncComponent, AsyncComponentParts};
+use relm4::{prelude::*, AsyncComponentSender};
 
-use tokio::sync::mpsc::channel;
-
-use std::collections::VecDeque;
-
-use std::fs::read_dir;
-use std::io::{stdin, BufRead};
-
-use std::path::PathBuf;
-use std::process::exit;
-
-use std::sync::{Arc, Mutex};
-
+use std::convert::identity;
+use std::rc::Rc;
 use std::*;
 
-use crate::conf::Configuration;
-use crate::console::handle_command;
-use crate::player::start_player;
 use crate::player_state::PlayerState;
-use crate::remote::RemoteHandler;
 use crate::song::Song;
 
-#[tokio::main]
-async fn main() {
-    println!("Starting player");
-    let (ps, pr) = channel(128);
-    let status: Arc<Mutex<PlayerState>> = Arc::new(Mutex::new(PlayerState {
-        now_playing: None,
-        queue: VecDeque::new(),
-        volume: 1.0,
-        speed: 1.0,
-        paused: true,
-        total_duration: None,
-        current_duration: None,
-    }));
-    let mut remote_handler = RemoteHandler::new(ps.clone(), status.clone());
-    start_player(pr, status.clone()).await;
+use self::commands::PlayerMessage;
 
-    for command in stdin().lock().lines() {
-        match command {
-            Ok(command) => {
-                handle_command(
-                    command.trim(),
-                    ps.clone(),
-                    status.clone(),
-                    &mut remote_handler,
-                )
-                .await
+const APP_ID: &str = "jere.ssmp";
+
+fn main() {
+    let app = RelmApp::new(APP_ID);
+    app.run_async::<AppModel>(PlayerState::new());
+}
+
+struct AppModel {
+    status: PlayerState,
+}
+
+#[relm4::component(async)]
+impl AsyncComponent for AppModel {
+    type Init = PlayerState;
+    type Input = PlayerState;
+    type Output = PlayerMessage;
+    type CommandOutput = ();
+    view! {
+        gtk::Window {
+            set_title: Some("Socially Shared Music Player"),
+            set_default_size: (300, 100),
+
+            gtk::Box {
+                set_orientation: gtk::Orientation::Vertical,
+                set_spacing: 5,
+                set_margin_all: 5,
+
+                gtk::Label {
+                    #[watch]
+                    set_label: &format!("{}", model.status.now_playing.clone().map(|x| x.name).unwrap_or("".to_string())),
+                    set_margin_all: 5,
+                },
+                gtk::Box{
+                    set_orientation: gtk::Orientation::Horizontal,
+
+                    gtk::Image{
+
+                    }
+                },
+                gtk::Box{
+                    set_orientation: gtk::Orientation::Horizontal,
+                    set_spacing: 10,
+                    set_halign: gtk::Align::Center,
+                    gtk::Button{
+                        connect_clicked[player_handler] => move |_| {
+                            player_handler.emit(PlayerMessage::Seek(0));
+                        },
+                        gtk::Image{
+                            set_from_icon_name: Some("media-skip-backward")
+                        }
+                    },
+                    gtk::Box{
+                        set_orientation: gtk::Orientation::Horizontal,
+                        set_spacing: 2,
+                        #[name = "group"]
+                        gtk::ToggleButton{
+                            gtk::Image{
+                                set_from_icon_name: Some("media-playback-start")
+                            },
+                            set_active: !model.status.paused,
+                            connect_clicked[player_handler] => move |_| {
+                                player_handler.emit(PlayerMessage::Play);
+                            }
+                        },
+                        gtk::ToggleButton{
+                            gtk::Image{
+                                set_from_icon_name: Some("media-playback-pause")
+                            },
+                            set_active: model.status.paused,
+                            set_group: Some(&group),
+                            connect_clicked[player_handler] => move |_| {
+                                player_handler.emit(PlayerMessage::Pause);
+                            }
+                        }
+                    },
+
+                    gtk::Button{
+                        connect_clicked[player_handler] => move |_| {
+                            player_handler.emit(PlayerMessage::Add(Song::from_file("songs/haloo helsinki - ei eerika pääse taivaaseen.mp3".into()).unwrap()));
+                            //player_handler.emit(PlayerMessage::skip_first());
+                        },
+                        gtk::Image{
+                            set_from_icon_name: Some("media-skip-forward")
+                        }
+                    },
+                }
             }
-            Err(_) => println!("Error handling input stream"),
         }
     }
-    exit_program()
-}
 
-pub fn list_songs() -> Vec<Song> {
-    let mut song_list: Vec<Song> = Vec::new();
-    let conf = Configuration::get_conf();
-    let owned_path = conf.owned_path;
-    let outer_paths = conf.outer_paths;
-    let mut total_path = outer_paths.to_vec();
-    total_path.push(owned_path);
+    async fn init(
+        status: Self::Init,
+        root: Self::Root,
+        sender: AsyncComponentSender<Self>,
+    ) -> AsyncComponentParts<Self> {
+        let player_handler = Rc::new(
+            Player::builder()
+                .detach_worker(())
+                .forward(sender.input_sender(), identity),
+        );
+        let model = AppModel { status };
+        let widgets = view_output!();
 
-    for dir_str in total_path {
-        song_list.append(&mut scan_folder(dir_str))
+        AsyncComponentParts { model, widgets }
     }
-    song_list
-}
 
-fn scan_folder(folder: PathBuf) -> Vec<Song> {
-    let mut song_vec = Vec::new();
-    if let Ok(dir) = read_dir(folder) {
-        for entry in dir.flatten() {
-            if entry.get_format() != Format::UNSUPPORTED {
-                if let Some(song) = Song::from_file(entry.path()) {
-                    song_vec.push(song)
-                }
-            } else if let Ok(filetype) = entry.file_type() {
-                if filetype.is_dir() {
-                    song_vec.append(&mut scan_folder(entry.path()))
-                }
-            }
-        }
+    async fn update(
+        &mut self,
+        msg: Self::Input,
+        _sender: AsyncComponentSender<Self>,
+        _root: &Self::Root,
+    ) {
+        self.status = msg;
     }
-    song_vec
-}
-
-fn exit_program() {
-    println!("Exitting");
-    exit(0)
 }

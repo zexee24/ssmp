@@ -8,8 +8,8 @@ use id3::{frame::PictureType, Tag, TagLike};
 use rodio::{decoder::DecoderError, Decoder};
 use serde::{Deserialize, Serialize};
 
-use crate::format::Formattable;
-use crate::{format::Format, list_songs};
+use crate::format::Format;
+use crate::{files::list_songs, format::Formattable};
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Song {

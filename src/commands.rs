@@ -13,3 +13,9 @@ pub enum PlayerMessage {
     ReOrder(usize, usize),
     Seek(u64),
 }
+
+impl PlayerMessage {
+    pub fn skip_first() -> Self {
+        Self::Skip(Box::new([0]))
+    }
+}

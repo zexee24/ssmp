@@ -17,7 +17,8 @@ use tokio::{
 
 use crate::{
     commands::PlayerMessage,
-    downloader, list_songs,
+    downloader,
+    files::list_songs,
     player_state::PlayerState,
     song::{Song, SongWithImage},
 };
