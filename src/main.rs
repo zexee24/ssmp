@@ -8,18 +8,21 @@ mod player;
 pub mod player_state;
 pub mod remote;
 pub mod song;
+pub mod ui;
 
 use gtk::prelude::*;
 use player::Player;
 use relm4::component::{AsyncComponent, AsyncComponentParts};
+use relm4::factory::FactoryVecDeque;
 use relm4::{prelude::*, AsyncComponentSender};
 
 use std::convert::identity;
 use std::rc::Rc;
 use std::*;
 
+use crate::files::list_songs;
 use crate::player_state::PlayerState;
-use crate::song::Song;
+use crate::ui::song_selecter::SongFile;
 
 use self::commands::PlayerMessage;
 
@@ -32,6 +35,7 @@ fn main() {
 
 struct AppModel {
     status: PlayerState,
+    song_files_factory: FactoryVecDeque<SongFile>,
 }
 
 #[relm4::component(async)]
@@ -101,15 +105,23 @@ impl AsyncComponent for AppModel {
 
                     gtk::Button{
                         connect_clicked[player_handler] => move |_| {
-                            player_handler.emit(PlayerMessage::Add(Song::from_file("songs/haloo helsinki - ei eerika pääse taivaaseen.mp3".into()).unwrap()));
-                            //player_handler.emit(PlayerMessage::skip_first());
+                            player_handler.emit(PlayerMessage::skip_first());
                         },
                         gtk::Image{
                             set_from_icon_name: Some("media-skip-forward")
                         }
                     },
+                },
+                gtk::ScrolledWindow{
+                    set_propagate_natural_height: true,
+                    #[local_ref]
+                    song_box -> gtk::Box{
+                        set_orientation: gtk::Orientation::Vertical,
+                        set_spacing: 5,
+                    }
                 }
             }
+
         }
     }
 
@@ -123,7 +135,14 @@ impl AsyncComponent for AppModel {
                 .detach_worker(())
                 .forward(sender.input_sender(), identity),
         );
-        let model = AppModel { status };
+
+        let song_files_factory =
+            FactoryVecDeque::<SongFile>::new(gtk::Box::default(), player_handler.sender());
+        let model = AppModel {
+            status,
+            song_files_factory,
+        };
+        let song_box = model.song_files_factory.widget();
         let widgets = view_output!();
 
         AsyncComponentParts { model, widgets }
@@ -135,6 +154,15 @@ impl AsyncComponent for AppModel {
         _sender: AsyncComponentSender<Self>,
         _root: &Self::Root,
     ) {
+        // PERF: Reading filesystem for every update is not a very good idea and this is a hack
+        let songs = list_songs();
+        if self.song_files_factory.len() != songs.len() {
+            let mut g = self.song_files_factory.guard();
+            g.clear();
+            list_songs().into_iter().for_each(|x| {
+                g.push_back(x);
+            });
+        }
         self.status = msg;
     }
 }
