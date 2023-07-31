@@ -38,6 +38,15 @@ impl Song {
         }
     }
 
+    pub fn matches_name(&self, s: &str) -> bool {
+        self.name.to_lowercase().contains(&s.to_lowercase())
+            || self
+                .artist
+                .as_ref()
+                .map(|a| a.to_lowercase().contains(&s.to_lowercase()))
+                .unwrap_or(false)
+    }
+
     fn create_buf(&self) -> io::Result<BufReader<File>> {
         let file = File::open(&self.path)?;
         Ok(BufReader::new(file))

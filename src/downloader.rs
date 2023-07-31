@@ -80,6 +80,7 @@ mod tests {
     }
 }
 
+// TODO: Use Opus instead of mp3
 pub(crate) fn change_format_and_name_better(name: &str, path: PathBuf) -> Result<PathBuf, String> {
     let new_file_name = gen_filename(name) + &Format::MP3.filetype_to_extension().unwrap();
     let mut new_loc = Configuration::get_conf().owned_path;

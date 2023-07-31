@@ -43,6 +43,12 @@ impl FactoryComponent for SongFile {
                 gtk::Image{
                     set_from_icon_name: Some("media-playback-start"),
                 },
+                connect_clicked => SelectorMessage::Play
+            },
+            gtk::Button{
+                gtk::Image{
+                    set_from_icon_name: Some("view-continuous"),
+                },
                 connect_clicked => SelectorMessage::Queue
             }
         }
@@ -63,6 +69,10 @@ impl FactoryComponent for SongFile {
     fn update(&mut self, msg: Self::Input, sender: FactorySender<Self>) {
         match msg {
             SelectorMessage::Queue => sender.output(PlayerMessage::Add(self.song.clone())),
+            SelectorMessage::Play => {
+                sender.output(PlayerMessage::Stop);
+                sender.output(PlayerMessage::Add(self.song.clone()));
+            }
             _ => {}
         }
     }

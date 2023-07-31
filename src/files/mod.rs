@@ -5,7 +5,7 @@ use crate::conf::Configuration;
 use crate::format::{Format, Formattable};
 use crate::song::Song;
 
-//TODO make this async
+// TODO: make this async
 pub fn list_songs() -> Vec<Song> {
     let mut song_list: Vec<Song> = Vec::new();
     let conf = Configuration::get_conf();

@@ -8,6 +8,7 @@ use tokio::time::Instant;
 
 use crate::commands::PlayerMessage;
 use crate::player_state::PlayerState;
+use crate::MainMessage;
 
 pub(crate) struct Player {
     sender: Sender<PlayerMessage>,
@@ -18,7 +19,7 @@ impl Worker for Player {
 
     type Input = PlayerMessage;
 
-    type Output = PlayerState;
+    type Output = MainMessage;
 
     fn init(_init: Self::Init, sender: relm4::ComponentSender<Self>) -> Self {
         let (ps, pr) = channel();
@@ -30,8 +31,9 @@ impl Worker for Player {
             let mut t = Instant::now();
             loop {
                 thread::sleep(Duration::from_millis(50));
-                let sendable = state.clone();
-                sender.output(sendable).unwrap();
+                sender
+                    .output(MainMessage::StateUpdated(state.clone()))
+                    .unwrap();
                 // Add the next song to the queue if the queue is empty
                 if sink.empty() && !state.queue.is_empty() {
                     let song = state.queue.pop_front();

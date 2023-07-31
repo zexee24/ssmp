@@ -14,7 +14,9 @@ use gtk::prelude::*;
 use player::Player;
 use relm4::component::{AsyncComponent, AsyncComponentParts};
 use relm4::factory::FactoryVecDeque;
+use relm4::gtk::EntryIconPosition;
 use relm4::{prelude::*, AsyncComponentSender};
+use song::Song;
 
 use std::convert::identity;
 use std::rc::Rc;
@@ -36,12 +38,20 @@ fn main() {
 struct AppModel {
     status: PlayerState,
     song_files_factory: FactoryVecDeque<SongFile>,
+    song_list: Vec<Song>,
+}
+
+#[derive(Debug)]
+enum MainMessage {
+    StateUpdated(PlayerState),
+    SearchChanged(String),
+    FilesChanged,
 }
 
 #[relm4::component(async)]
 impl AsyncComponent for AppModel {
     type Init = PlayerState;
-    type Input = PlayerState;
+    type Input = MainMessage;
     type Output = PlayerMessage;
     type CommandOutput = ();
     view! {
@@ -112,6 +122,13 @@ impl AsyncComponent for AppModel {
                         }
                     },
                 },
+                gtk::Entry{
+                    set_icon_from_icon_name: (EntryIconPosition::Secondary, Some("system-search")),
+                    connect_changed[sender] => move |entry| {
+                        let buffer = entry.buffer();
+                        sender.input(MainMessage::SearchChanged(buffer.text().into()))
+                    }
+                },
                 gtk::ScrolledWindow{
                     set_propagate_natural_height: true,
                     #[local_ref]
@@ -136,15 +153,21 @@ impl AsyncComponent for AppModel {
                 .forward(sender.input_sender(), identity),
         );
 
-        let song_files_factory =
+        let mut song_files_factory =
             FactoryVecDeque::<SongFile>::new(gtk::Box::default(), player_handler.sender());
+        let mut g = song_files_factory.guard();
+        let song_list = list_songs();
+        song_list.iter().for_each(|x| {
+            g.push_back(x.clone());
+        });
+        g.drop();
         let model = AppModel {
             status,
             song_files_factory,
+            song_list,
         };
         let song_box = model.song_files_factory.widget();
         let widgets = view_output!();
-
         AsyncComponentParts { model, widgets }
     }
 
@@ -154,15 +177,21 @@ impl AsyncComponent for AppModel {
         _sender: AsyncComponentSender<Self>,
         _root: &Self::Root,
     ) {
-        // PERF: Reading filesystem for every update is not a very good idea and this is a hack
-        let songs = list_songs();
-        if self.song_files_factory.len() != songs.len() {
-            let mut g = self.song_files_factory.guard();
-            g.clear();
-            list_songs().into_iter().for_each(|x| {
-                g.push_back(x);
-            });
+        match msg {
+            MainMessage::FilesChanged => {
+                // TODO: Handle changing of files without change in search
+            }
+            MainMessage::StateUpdated(s) => self.status = s,
+            MainMessage::SearchChanged(s) => {
+                let mut g = self.song_files_factory.guard();
+                g.clear();
+                self.song_list
+                    .iter()
+                    .filter(|x| x.matches_name(&s))
+                    .for_each(|x| {
+                        g.push_back(x.clone());
+                    });
+            }
         }
-        self.status = msg;
     }
 }
