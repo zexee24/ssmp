@@ -14,6 +14,8 @@ use youtube_dl::YoutubeDl;
 
 use crate::{conf::Configuration, format::Format, song::Song};
 
+// PERF: Change to id:s instead of url:s
+/// Tries to download the video with given url
 pub(crate) async fn download_dlp(url: String) -> Result<Song, String> {
     let conf = Configuration::get_conf();
     let mut fldr = Configuration::get_conf().owned_path;

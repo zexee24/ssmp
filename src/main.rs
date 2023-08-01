@@ -9,14 +9,18 @@ pub mod player_state;
 pub mod remote;
 pub mod song;
 pub mod ui;
+pub mod youtube;
 
 use gtk::prelude::*;
 use player::Player;
-use relm4::component::{AsyncComponent, AsyncComponentParts};
-use relm4::factory::FactoryVecDeque;
+use relm4::component::{
+    AsyncComponent, AsyncComponentController, AsyncComponentParts, AsyncController,
+};
+use relm4::factory::{FactoryVecDeque, FactoryVecDequeGuard};
 use relm4::gtk::EntryIconPosition;
 use relm4::{prelude::*, AsyncComponentSender};
 use song::Song;
+use ui::youtube_browser::{YoutubeBrowser, YtMessage};
 
 use std::convert::identity;
 use std::rc::Rc;
@@ -39,10 +43,12 @@ struct AppModel {
     status: PlayerState,
     song_files_factory: FactoryVecDeque<SongFile>,
     song_list: Vec<Song>,
+    youtube_searcher: AsyncController<YoutubeBrowser>,
+    current_search: String,
 }
 
 #[derive(Debug)]
-enum MainMessage {
+pub enum MainMessage {
     StateUpdated(PlayerState),
     SearchChanged(String),
     FilesChanged,
@@ -129,13 +135,18 @@ impl AsyncComponent for AppModel {
                         sender.input(MainMessage::SearchChanged(buffer.text().into()))
                     }
                 },
-                gtk::ScrolledWindow{
-                    set_propagate_natural_height: true,
-                    #[local_ref]
-                    song_box -> gtk::Box{
-                        set_orientation: gtk::Orientation::Vertical,
-                        set_spacing: 5,
-                    }
+                gtk::Box{
+                    set_orientation: gtk::Orientation::Horizontal,
+                    gtk::ScrolledWindow{
+                        set_propagate_natural_height: true,
+                        set_propagate_natural_width: true,
+                        #[local_ref]
+                        song_box -> gtk::Box{
+                            set_orientation: gtk::Orientation::Vertical,
+                            set_spacing: 5,
+                        },
+                    },
+                    append = model.youtube_searcher.widget(),
                 }
             }
 
@@ -161,10 +172,15 @@ impl AsyncComponent for AppModel {
             g.push_back(x.clone());
         });
         g.drop();
+        let youtube_searcher = YoutubeBrowser::builder()
+            .launch(())
+            .forward(sender.input_sender(), identity);
         let model = AppModel {
             status,
             song_files_factory,
             song_list,
+            youtube_searcher,
+            current_search: "".to_string(),
         };
         let song_box = model.song_files_factory.widget();
         let widgets = view_output!();
@@ -179,19 +195,45 @@ impl AsyncComponent for AppModel {
     ) {
         match msg {
             MainMessage::FilesChanged => {
-                // TODO: Handle changing of files without change in search
+                // TODO: Check for possible file changes by system periotically
+
+                self.song_list = list_songs();
+                let mut g = self.song_files_factory.guard();
+                g.clear();
+                insert_into_factory(
+                    self.song_list
+                        .clone()
+                        .into_iter()
+                        .filter(|x| x.matches_name(&self.current_search)),
+                    &mut g,
+                );
             }
             MainMessage::StateUpdated(s) => self.status = s,
             MainMessage::SearchChanged(s) => {
+                self.current_search = s.clone();
                 let mut g = self.song_files_factory.guard();
                 g.clear();
-                self.song_list
-                    .iter()
-                    .filter(|x| x.matches_name(&s))
-                    .for_each(|x| {
-                        g.push_back(x.clone());
-                    });
+                insert_into_factory(
+                    self.song_list
+                        .clone()
+                        .into_iter()
+                        .filter(|x| x.matches_name(&s)),
+                    &mut g,
+                );
+                self.youtube_searcher
+                    .sender()
+                    .emit(YtMessage::QueryChanges(s))
             }
         }
     }
+}
+
+pub fn insert_into_factory<I, T, F>(iter: I, g: &mut FactoryVecDequeGuard<F>)
+where
+    I: Iterator<Item = T>,
+    F: FactoryComponent<Init = T, Index = DynamicIndex>,
+{
+    iter.for_each(|x| {
+        g.push_back(x);
+    })
 }
