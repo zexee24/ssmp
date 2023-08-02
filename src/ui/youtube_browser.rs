@@ -12,6 +12,7 @@ use reqwest::Client;
 use crate::{
     downloader::download_dlp,
     insert_into_factory,
+    song::Song,
     youtube::{scrape_youtube, video::Video},
     MainMessage,
 };
@@ -19,7 +20,6 @@ use crate::{
 #[derive(Debug)]
 pub struct YoutubeBrowser {
     youtube_factory: FactoryVecDeque<Video>,
-    client: Client,
 }
 
 #[derive(Debug)]
@@ -28,12 +28,20 @@ pub enum YtMessage {
     QueryChanges(String),
 }
 
+#[derive(Debug)]
+pub enum CommandMessage {
+    QueryUpdated(Vec<Video>),
+    QueryFailed(String),
+    DownloadSuccesful(Song),
+    DownloadFailed(String),
+}
+
 #[relm4::component(async, pub)]
 impl AsyncComponent for YoutubeBrowser {
     type Init = ();
     type Input = YtMessage;
     type Output = MainMessage;
-    type CommandOutput = ();
+    type CommandOutput = CommandMessage;
     view! {
         gtk::Box{
             #[local_ref]
@@ -52,7 +60,6 @@ impl AsyncComponent for YoutubeBrowser {
             FactoryVecDeque::<Video>::new(gtk::Box::default(), sender.input_sender());
         let model = YoutubeBrowser {
             youtube_factory,
-            client: Client::new(),
         };
         let yt_box = model.youtube_factory.widget();
         let widgets = view_output!();
@@ -75,28 +82,42 @@ impl AsyncComponent for YoutubeBrowser {
         _root: &Self::Root,
     ) {
         match msg {
-            YtMessage::Download(id) => {
+            YtMessage::Download(id) => sender.oneshot_command(async move{
                 match download_dlp(format!("https://www.youtube.com/watch?v={}", id)).await {
-                    Ok(_) => {
-                    // PERF: This should be done without scanning the whole file system
-                        sender.output(MainMessage::FilesChanged).unwrap();
-                    }
-                    Err(e) => println!("Error: {}", e),
+                    Ok(s) => CommandMessage::DownloadSuccesful(s),
+                    Err(e) => CommandMessage::DownloadFailed(e.to_string()),
                 }
-            }
+            }),
             YtMessage::QueryChanges(s) => {
-                // FIX: This should either run in the background or only be run manually
-                let results = scrape_youtube(&s, &self.client).await;
-                match results {
-                    Ok(r) => {
-                        let mut g = self.youtube_factory.guard();
-                        g.clear();
-                        insert_into_factory(r.into_iter(), &mut g)
+                sender.oneshot_command(async move {
+                    // PERF: Use a persistent group of clients, not create new ones for every request
+                    match scrape_youtube(&s, &Client::new()).await {
+                        Ok(v) => CommandMessage::QueryUpdated(v),
+                        Err(e) => CommandMessage::QueryFailed(e.to_string()),
                     }
-                    // TODO: Make errors visible in the program
-                    Err(e) => println!("{}", e),
-                }
+                });
             }
+        }
+    }
+
+    async fn update_cmd(
+        &mut self,
+        message: Self::CommandOutput,
+        sender: AsyncComponentSender<Self>,
+        _: &Self::Root,
+    ) {
+        match message {
+            CommandMessage::QueryUpdated(v) => {
+                let mut g = self.youtube_factory.guard();
+                g.clear();
+                insert_into_factory(v.into_iter(), &mut g)
+            }
+            CommandMessage::QueryFailed(s) => println!("Failed to query yt: {}", s),
+            CommandMessage::DownloadSuccesful(_) => {
+                // PERF: This should be done without scanning the whole file system
+                sender.output(MainMessage::FilesChanged).unwrap();
+            }
+            CommandMessage::DownloadFailed(s) => println!("Failed download: {}", s),
         }
     }
 }

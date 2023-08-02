@@ -35,6 +35,7 @@ use self::commands::PlayerMessage;
 const APP_ID: &str = "jere.ssmp";
 
 fn main() {
+    relm4::RELM_THREADS.set(4).unwrap();
     let app = RelmApp::new(APP_ID);
     app.run_async::<AppModel>(PlayerState::new());
 }
