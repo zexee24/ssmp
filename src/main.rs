@@ -138,6 +138,7 @@ impl AsyncComponent for AppModel {
                 },
                 gtk::Box{
                     set_orientation: gtk::Orientation::Horizontal,
+                    set_spacing: 5,
                     gtk::ScrolledWindow{
                         set_propagate_natural_height: true,
                         set_propagate_natural_width: true,
@@ -147,7 +148,14 @@ impl AsyncComponent for AppModel {
                             set_spacing: 5,
                         },
                     },
-                    append = model.youtube_searcher.widget(),
+                    gtk::Separator{
+                        set_orientation: gtk::Orientation::Horizontal
+                    },
+                    gtk::ScrolledWindow{
+                        set_propagate_natural_height: true,
+                        set_propagate_natural_width: true,
+                        model.youtube_searcher.widget(),
+                    }
                 }
             }
 

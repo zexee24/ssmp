@@ -58,9 +58,7 @@ impl AsyncComponent for YoutubeBrowser {
     ) -> AsyncComponentParts<Self> {
         let youtube_factory =
             FactoryVecDeque::<Video>::new(gtk::Box::default(), sender.input_sender());
-        let model = YoutubeBrowser {
-            youtube_factory,
-        };
+        let model = YoutubeBrowser { youtube_factory };
         let yt_box = model.youtube_factory.widget();
         let widgets = view_output!();
         AsyncComponentParts { model, widgets }
@@ -82,7 +80,7 @@ impl AsyncComponent for YoutubeBrowser {
         _root: &Self::Root,
     ) {
         match msg {
-            YtMessage::Download(id) => sender.oneshot_command(async move{
+            YtMessage::Download(id) => sender.oneshot_command(async move {
                 match download_dlp(format!("https://www.youtube.com/watch?v={}", id)).await {
                     Ok(s) => CommandMessage::DownloadSuccesful(s),
                     Err(e) => CommandMessage::DownloadFailed(e.to_string()),
