@@ -74,7 +74,6 @@ impl AsyncComponent for AppModel {
                 gtk::Label {
                     #[watch]
                     set_label: &format!("{}", model.status.now_playing.clone().map(|x| x.name).unwrap_or("".to_string())),
-                    set_margin_all: 5,
                 },
                 gtk::Box{
                     set_orientation: gtk::Orientation::Horizontal,
@@ -126,6 +125,19 @@ impl AsyncComponent for AppModel {
                         },
                         gtk::Image{
                             set_from_icon_name: Some("media-skip-forward")
+                        }
+                    },
+
+                    gtk::Scale{
+                        set_range: (0.0, 1.0),
+                        set_width_request: 100,
+                        // FIX:  add #[watch] so that volume updates when this is updated from the
+                        // remote
+                        set_value: model.status.volume.into(),
+                        connect_change_value[player_handler] => move |_,_st,value| {
+                            // TODO: Do this logaritmically
+                            player_handler.emit(PlayerMessage::Volume(value as f32));
+                            gtk::Inhibit(false)
                         }
                     },
                 },

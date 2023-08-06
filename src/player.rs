@@ -30,10 +30,6 @@ impl Worker for Player {
             sink.set_volume(state.volume);
             let mut t = Instant::now();
             loop {
-                thread::sleep(Duration::from_millis(50));
-                sender
-                    .output(MainMessage::StateUpdated(state.clone()))
-                    .unwrap();
                 // Add the next song to the queue if the queue is empty
                 if sink.empty() && !state.queue.is_empty() {
                     let song = state.queue.pop_front();
@@ -75,7 +71,10 @@ impl Worker for Player {
                                 )
                                 .unwrap();
                         }
-                        PlayerMessage::Volume(v) => sink.set_volume(v),
+                        PlayerMessage::Volume(v) => {
+                            sink.set_volume(v);
+                            state.volume = v;
+                        }
                         PlayerMessage::Skip(list) => {
                             let mut sorted = list.clone();
                             sorted.sort_by(|a, b| b.cmp(a));
@@ -126,6 +125,10 @@ impl Worker for Player {
                         }
                     }
                 }
+                sender
+                    .output(MainMessage::StateUpdated(state.clone()))
+                    .unwrap();
+                thread::sleep(Duration::from_millis(50));
             }
         });
         Self { sender: ps }
