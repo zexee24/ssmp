@@ -133,10 +133,9 @@ impl AsyncComponent for AppModel {
                         set_width_request: 100,
                         // FIX:  add #[watch] so that volume updates when this is updated from the
                         // remote
-                        set_value: model.status.volume.into(),
+                        set_value: PlayerMessage::reverse_exp_volume(model.status.volume),
                         connect_change_value[player_handler] => move |_,_st,value| {
-                            // TODO: Do this logaritmically
-                            player_handler.emit(PlayerMessage::Volume(value as f32));
+                            player_handler.emit(PlayerMessage::exp_volume(value));
                             gtk::Inhibit(false)
                         }
                     },

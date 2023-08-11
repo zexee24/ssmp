@@ -105,6 +105,7 @@ impl AsyncComponent for YoutubeBrowser {
         _: &Self::Root,
     ) {
         match message {
+            // FIX: Should disregard older search requests
             CommandMessage::QueryUpdated(v) => {
                 let mut g = self.youtube_factory.guard();
                 g.clear();

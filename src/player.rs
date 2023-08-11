@@ -128,7 +128,7 @@ impl Worker for Player {
                 sender
                     .output(MainMessage::StateUpdated(state.clone()))
                     .unwrap();
-                thread::sleep(Duration::from_millis(50));
+                thread::sleep(Duration::from_millis(1));
             }
         });
         Self { sender: ps }
