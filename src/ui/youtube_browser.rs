@@ -20,17 +20,20 @@ use crate::{
 #[derive(Debug)]
 pub struct YoutubeBrowser {
     youtube_factory: FactoryVecDeque<Video>,
+    order: u128,
+    view_order: u128,
 }
 
 #[derive(Debug)]
 pub enum YtMessage {
+    // PERF: Investigate if there is a performance diffirence when using other sizes
     Download(String),
     QueryChanges(String),
 }
 
 #[derive(Debug)]
 pub enum CommandMessage {
-    QueryUpdated(Vec<Video>),
+    QueryUpdated(Vec<Video>, u128),
     QueryFailed(String),
     DownloadSuccesful(Song),
     DownloadFailed(String),
@@ -58,7 +61,7 @@ impl AsyncComponent for YoutubeBrowser {
     ) -> AsyncComponentParts<Self> {
         let youtube_factory =
             FactoryVecDeque::<Video>::new(gtk::Box::default(), sender.input_sender());
-        let model = YoutubeBrowser { youtube_factory };
+        let model = YoutubeBrowser { youtube_factory, order: 0, view_order: 0};
         let yt_box = model.youtube_factory.widget();
         let widgets = view_output!();
         AsyncComponentParts { model, widgets }
@@ -83,14 +86,16 @@ impl AsyncComponent for YoutubeBrowser {
             YtMessage::Download(id) => sender.oneshot_command(async move {
                 match download_dlp(format!("https://www.youtube.com/watch?v={}", id)).await {
                     Ok(s) => CommandMessage::DownloadSuccesful(s),
-                    Err(e) => CommandMessage::DownloadFailed(e.to_string()),
+                    Err(e) => CommandMessage::DownloadFailed(e),
                 }
             }),
             YtMessage::QueryChanges(s) => {
+                let order = self.order;
+                self.order += 1;
                 sender.oneshot_command(async move {
                     // PERF: Use a persistent group of clients, not create new ones for every request
                     match scrape_youtube(&s, &Client::new()).await {
-                        Ok(v) => CommandMessage::QueryUpdated(v),
+                        Ok(v) => CommandMessage::QueryUpdated(v, order),
                         Err(e) => CommandMessage::QueryFailed(e.to_string()),
                     }
                 });
@@ -105,11 +110,13 @@ impl AsyncComponent for YoutubeBrowser {
         _: &Self::Root,
     ) {
         match message {
-            // FIX: Should disregard older search requests
-            CommandMessage::QueryUpdated(v) => {
-                let mut g = self.youtube_factory.guard();
-                g.clear();
-                insert_into_factory(v.into_iter(), &mut g)
+            CommandMessage::QueryUpdated(v, ord) => {
+                if self.view_order < ord{
+                    let mut g = self.youtube_factory.guard();
+                    g.clear();
+                    insert_into_factory(v.into_iter(), &mut g);
+                    self.view_order = ord;
+                }
             }
             CommandMessage::QueryFailed(s) => println!("Failed to query yt: {}", s),
             CommandMessage::DownloadSuccesful(_) => {

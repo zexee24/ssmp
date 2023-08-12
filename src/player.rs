@@ -127,7 +127,7 @@ impl Worker for Player {
                 }
                 sender
                     .output(MainMessage::StateUpdated(state.clone()))
-                    .unwrap();
+                    .expect("For the application to be running");
                 thread::sleep(Duration::from_millis(1));
             }
         });

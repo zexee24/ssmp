@@ -30,7 +30,7 @@ impl PlayerMessage {
     }
 
     pub fn reverse_exp_volume(n: f32) -> f64 {
-        n.div(Self::VOLUME_MAX as f32).max(0.0).powf(0.25).into()
+        n.div(Self::VOLUME_MAX).max(0.0).powf(0.25).into()
     }
 }
 
