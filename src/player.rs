@@ -47,11 +47,11 @@ impl Worker for Player {
                     }
                 } else if sink.empty() && state.queue.is_empty() {
                     state.now_playing = None;
-                    state.current_duration = None;
+                    state.elapsed_duration = None;
                     state.total_duration = None;
                 }
                 if state.now_playing.is_some() && !sink.is_paused() {
-                    state.current_duration = Some(t.elapsed().mul_f32(sink.speed()));
+                    state.elapsed_duration = Some(t.elapsed().mul_f32(sink.speed()));
                 }
 
                 // Handle a message if one is recieved
@@ -67,7 +67,7 @@ impl Worker for Player {
                             sink.play();
                             t = Instant::now()
                                 .checked_sub(
-                                    state.current_duration.unwrap_or(Duration::from_secs(0)),
+                                    state.elapsed_duration.unwrap_or(Duration::from_secs(0)),
                                 )
                                 .unwrap();
                         }
@@ -95,7 +95,7 @@ impl Worker for Player {
                             t = Instant::now()
                                 .checked_sub(
                                     state
-                                        .current_duration
+                                        .elapsed_duration
                                         .unwrap_or(Duration::new(0, 0).mul_f32(s)),
                                 )
                                 .unwrap();
@@ -111,6 +111,8 @@ impl Worker for Player {
                             }
                         }
                         PlayerMessage::Seek(n) => {
+                            // FIX: This is a terrible way to implement seeking and is only used
+                            // because I am yet to find a better one.
                             sink.stop();
                             if let Some(song) = &state.now_playing {
                                 match song.create_source() {

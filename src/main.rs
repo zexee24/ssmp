@@ -73,7 +73,7 @@ impl AsyncComponent for AppModel {
 
                 gtk::Label {
                     #[watch]
-                    set_label: &format!("{}", model.status.now_playing.clone().map(|x| x.name).unwrap_or("".to_string())),
+                    set_label: model.status.now_playing.as_ref().map(|x| &x.name).unwrap_or(&"".to_string()),
                 },
                 gtk::Box{
                     set_orientation: gtk::Orientation::Horizontal,
@@ -131,13 +131,36 @@ impl AsyncComponent for AppModel {
                     gtk::Scale{
                         set_range: (0.0, 1.0),
                         set_width_request: 100,
-                        // FIX:  add #[watch] so that volume updates when this is updated from the
-                        // remote
+                        #[watch]
+                        #[block_signal(volume_slider_handler)]
                         set_value: PlayerMessage::reverse_exp_volume(model.status.volume),
-                        connect_change_value[player_handler] => move |_,_st,value| {
-                            player_handler.emit(PlayerMessage::exp_volume(value));
-                            gtk::Inhibit(false)
-                        }
+                        connect_value_changed[player_handler] => move |x| {
+                            player_handler.emit(PlayerMessage::exp_volume(x.value()));
+                        } @volume_slider_handler
+                    },
+                },
+                gtk::Box{
+                    set_orientation: gtk::Orientation::Horizontal,
+                    set_halign: gtk::Align::Center,
+                    gtk::Label{
+                        #[watch]
+                        set_label: &model.status.show_elapsed_duration().unwrap_or("".into())
+                    },
+                    gtk::Scale{
+                        #[watch]
+                        set_range: (0.0,model.status.total_duration.map(|d| d.as_millis()).unwrap_or(0) as f64),
+                        set_width_request: 500,
+                        #[watch]
+                        #[block_signal(seeker_handler)]
+                        set_value: model.status.elapsed_duration.map(|d| d.as_millis()).unwrap_or(0) as f64,
+                        connect_value_changed[player_handler] => move |x| {
+                            player_handler.emit(PlayerMessage::Seek((x.value() / 1000.0).round() as u64))
+                        } @seeker_handler,
+                    },
+                        
+                    gtk::Label{
+                        #[watch]
+                        set_label: &model.status.show_total_duration().unwrap_or("".into())
                     },
                 },
                 gtk::Entry{

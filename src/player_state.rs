@@ -12,7 +12,7 @@ pub struct PlayerState {
     pub speed: f32,
     pub paused: bool,
     pub total_duration: Option<Duration>,
-    pub current_duration: Option<Duration>,
+    pub elapsed_duration: Option<Duration>,
 }
 
 impl PlayerState {
@@ -25,7 +25,24 @@ impl PlayerState {
             speed: 1.0,
             paused: false,
             total_duration: None,
-            current_duration: None,
+            elapsed_duration: None,
         }
+    }
+
+    pub fn show_total_duration(&self) -> Option<String>{
+        Some(Self::display_duration(self.total_duration?))
+    }
+
+    pub fn show_elapsed_duration(&self) -> Option<String>{
+        Some(Self::display_duration(self.elapsed_duration?))
+    }
+
+    fn display_duration(d: Duration) -> String{
+        let secs = d.as_secs();
+        let display_secs = match secs % 60 < 10 {
+            true => format!("0{}", secs % 60),
+            false => format!("{}",secs % 60),
+        };
+        format!("{}:{}", secs/60, display_secs)
     }
 }

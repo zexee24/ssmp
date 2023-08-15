@@ -13,6 +13,7 @@ pub enum PlayerMessage {
     Clear,
     Speed(f32),
     ReOrder(usize, usize),
+    /// Seeks n seconds into the song,
     Seek(u64),
 }
 

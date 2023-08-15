@@ -20,13 +20,13 @@ use crate::{
 #[derive(Debug)]
 pub struct YoutubeBrowser {
     youtube_factory: FactoryVecDeque<Video>,
+    // PERF: Investigate if there is a performance diffirence when using other sizes
     order: u128,
     view_order: u128,
 }
 
 #[derive(Debug)]
 pub enum YtMessage {
-    // PERF: Investigate if there is a performance diffirence when using other sizes
     Download(String),
     QueryChanges(String),
 }

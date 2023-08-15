@@ -522,7 +522,7 @@ mod tests {
             speed: 1.0,
             paused: true,
             total_duration: None,
-            current_duration: None,
+            elapsed_duration: None,
         }))
     }
 
